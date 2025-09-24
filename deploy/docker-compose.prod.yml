@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7
+    container_name: medlink_redis
+    restart: always
+
+  # (Option) OSRM – idem, à activer quand tu auras les fichiers
+  # osrm:
+  #   image: ghcr.io/project-osrm/osrm-backend:latest
+  #   container_name: medlink_osrm
+  #   command: ["osrm-routed","/data/france-latest.osrm"]
+  #   volumes:
+  #     - ./osrm-data:/data:ro
+  #   ports:
+  #     - "5000:5000"
+  #   restart: always
+
+  api:
+    image: ${REGISTRY_IMAGE}/api:${IMAGE_TAG}
+    container_name: medlink_api
+    env_file:
+      - ./env/api.env
+    depends_on:
+      - redis
+    ports:
+      - "3001:3001"
+    restart: always
+
+  web:
+    image: ${REGISTRY_IMAGE}/web:${IMAGE_TAG}
+    container_name: medlink_web
+    env_file:
+      - ./env/web.env
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    restart: always

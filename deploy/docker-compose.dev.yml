@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7
+    container_name: medlink_redis
+    ports:
+      - "6379:6379"
+
+  # (Option) OSRM pour calcul d'itinéraires/ETA — à activer plus tard si besoin
+  # osrm:
+  #   image: ghcr.io/project-osrm/osrm-backend:latest
+  #   container_name: medlink_osrm
+  #   command: ["osrm-routed", "/data/france-latest.osrm"]
+  #   volumes:
+  #     - ./osrm-data:/data:ro
+  #   ports:
+  #     - "5000:5000"
