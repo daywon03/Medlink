@@ -1,0 +1,21 @@
+{
+  "name": "Medlink",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev:web": "pnpm -C apps/web dev",
+    "dev:api": "pnpm -C apps/api start:dev",
+    "dev:eliza": "node apps/eliza/dist/index.js || echo 'TODO'",
+    "lint": "eslint .",
+    "test:ci": "echo 'TODO tests'",
+    "build": "pnpm -C apps/web build && pnpm -C apps/api build",
+    "docker:up": "docker compose -f deploy/docker-compose.dev.yml up -d",
+    "docker:down": "docker compose -f deploy/docker-compose.dev.yml down"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.0"
+}
