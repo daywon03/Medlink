@@ -1,18 +1,89 @@
 version: "3.9"
 
 services:
+  # Redis pour cache et jobs
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: medlink_redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - medlink-network
+    restart: unless-stopped
 
-  # (Option) OSRM pour calcul d'itinéraires/ETA — à activer plus tard si besoin
-  # osrm:
-  #   image: ghcr.io/project-osrm/osrm-backend:latest
-  #   container_name: medlink_osrm
-  #   command: ["osrm-routed", "/data/france-latest.osrm"]
-  #   volumes:
-  #     - ./osrm-data:/data:ro
-  #   ports:
-  #     - "5000:5000"
+  # API Backend NestJS
+  api:
+    build:
+      context: ..
+      dockerfile: docker/api.Dockerfile
+      target: development
+    container_name: medlink_api
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: ${DATABASE_URL}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      WS_PORT: 3002
+    ports:
+      - "3001:3001"  # REST API
+      - "3002:3002"  # WebSocket
+      - "3003:3003"  # WebRTC signaling
+    volumes:
+      - ../apps/api:/app/apps/api
+      - /app/node_modules
+    depends_on:
+      - redis
+    networks:
+      - medlink-network
+    command: pnpm --filter api start:dev
+
+  # Frontend Next.js
+  web:
+    build:
+      context: ..
+      dockerfile: docker/web.Dockerfile
+      target: development
+    container_name: medlink_web
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_WS_URL: ws://localhost:3002
+      NEXT_PUBLIC_WEBRTC_URL: ws://localhost:3003
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../apps/web:/app/apps/web
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - medlink-network
+    command: pnpm --filter web dev
+
+  # Service ASR Whisper (transcription vocale)
+  whisper:
+    image: python:3.11-slim
+    container_name: medlink_whisper
+    working_dir: /app
+    volumes:
+      - ./whisper:/app
+    ports:
+      - "5000:5000"
+    networks:
+      - medlink-network
+    command: >
+      bash -c "
+        pip install faster-whisper flask flask-cors &&
+        python server.py
+      "
+
+volumes:
+  redis_data:
+
+networks:
+  medlink-network:
+    driver: bridge
