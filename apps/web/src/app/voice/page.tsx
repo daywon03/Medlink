@@ -14,47 +14,70 @@ export default function VoicePage() {
   const startCall = async () => {
     try {
       setCallStatus("Connexion au 15...");
+      setTranscript("");
 
-      // 1. Connexion WebSocket
+      console.log("🔌 Connexion WebSocket à:", WS_URL);
       wsRef.current = new WebSocket(WS_URL);
       
       wsRef.current.onopen = () => {
-        console.log("✅ Connecté au 15");
-        setCallStatus("🟢 En ligne avec le 15");
-
-        // 2. Démarrer l'appel (pas d'infos nécessaires)
-        wsRef.current?.send(JSON.stringify({
-          type: "start_call"
-        }));
+        console.log("✅ WebSocket connecté");
+        setCallStatus("🟢 En ligne - Parlez maintenant");
+        
+        const msg = JSON.stringify({ type: "start_call" });
+        console.log("📤 Envoi:", msg);
+        wsRef.current?.send(msg);
       };
 
       wsRef.current.onmessage = (event) => {
-        const message = JSON.parse(event.data);
+        console.log("📥 Message reçu:", event.data);
         
-        if (message.type === "partial_transcript") {
-          setTranscript((prev) => prev + " " + message.payload.text);
-        }
-        
-        if (message.type === "info") {
-          console.log("📢 Info:", message.payload.message);
+        try {
+          const message = JSON.parse(event.data);
+          console.log("📦 Message parsé:", message);
+          
+          if (message.type === "partial_transcript") {
+            const newText = message.payload.text;
+            console.log("📝 Nouvelle transcription:", newText);
+            
+            setTranscript((prev) => {
+              const updated = prev + " " + newText;
+              console.log("📄 Transcription complète:", updated);
+              return updated;
+            });
+          }
+          
+          if (message.type === "info") {
+            console.log("ℹ️ Info:", message.payload.message);
+            if (message.payload.callId) {
+              console.log("🆔 Call ID:", message.payload.callId);
+            }
+          }
+        } catch (e) {
+          console.error("❌ Erreur parsing message:", e);
         }
       };
 
-      wsRef.current.onerror = () => {
+      wsRef.current.onerror = (error) => {
+        console.error("❌ Erreur WebSocket:", error);
         setCallStatus("❌ Erreur de connexion");
       };
 
-      wsRef.current.onclose = () => {
+      wsRef.current.onclose = (event) => {
+        console.log("🔴 WebSocket fermé:", event.code, event.reason);
         setCallStatus("Appel terminé");
       };
 
-      // 3. Capture micro
+      // Capture micro
+      console.log("🎤 Demande accès micro...");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("✅ Micro autorisé");
       
       let mimeType = 'audio/webm;codecs=opus';
       if (!MediaRecorder.isTypeSupported(mimeType)) {
         mimeType = 'audio/webm';
+        console.log("⚠️  Fallback sur:", mimeType);
       }
+      console.log("🎙️  Format audio:", mimeType);
 
       const mediaRecord = new MediaRecorder(stream, { 
         mimeType,
@@ -65,30 +88,51 @@ export default function VoicePage() {
       
       mediaRecord.ondataavailable = async (event) => {
         if (event.data.size > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          console.log(`🎵 Chunk audio disponible: ${event.data.size} bytes`);
+          
           const arrayBuf = await event.data.arrayBuffer();
+          
+          // Envoie type puis données
+          console.log("📤 Envoi: audio_chunk");
           wsRef.current.send(JSON.stringify({ type: "audio_chunk" }));
+          
+          console.log(`📤 Envoi: ${arrayBuf.byteLength} bytes audio`);
           wsRef.current.send(arrayBuf);
+        } else {
+          console.warn("⚠️  Impossible d'envoyer, WebSocket pas prêt");
         }
       };
+
+      mediaRecord.onerror = (error) => {
+        console.error("❌ Erreur MediaRecorder:", error);
+      };
       
+      // Chunks de 2 secondes
+      console.log("▶️  Démarrage enregistrement (chunks 2s)");
       mediaRecord.start(2000);
       setRecording(true);
       
     } catch (error) {
-      console.error('❌ Erreur:', error);
-      alert("Impossible d'accéder au microphone. Autorisez l'accès dans votre navigateur.");
+      console.error('❌ Erreur startCall:', error);
+      alert("Impossible d'accéder au microphone");
     }
   };
   
   const stopCall = () => {
+    console.log("⏹️  Arrêt de l'enregistrement");
+    
     mediaRecorderRef.current?.stop();
-    mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+    mediaRecorderRef.current?.stream.getTracks().forEach(track => {
+      track.stop();
+      console.log("🛑 Track audio arrêté");
+    });
     
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      console.log("📤 Envoi: end_call");
       wsRef.current.send(JSON.stringify({ type: "end_call" }));
+      wsRef.current.close();
     }
     
-    wsRef.current?.close();
     setRecording(false);
   };
 
@@ -157,10 +201,22 @@ export default function VoicePage() {
         <p style={{ 
           fontSize: "16px",
           lineHeight: "1.8",
-          color: transcript ? "#000" : "#999"
+          color: transcript ? "#000" : "#999",
+          whiteSpace: "pre-wrap"
         }}>
-          {transcript || "Dites votre adresse et décrivez la situation..."}
+          {transcript || "En attente... Parlez dans le micro."}
         </p>
+      </div>
+
+      {/* Console debug */}
+      <div style={{ 
+        marginTop: "20px", 
+        padding: "10px", 
+        background: "#f5f5f5",
+        borderRadius: "8px",
+        fontSize: "12px"
+      }}>
+        <strong>Debug:</strong> Ouvrez la console navigateur (F12) pour voir les logs détaillés
       </div>
     </div>
   );
