@@ -1,114 +1,113 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+
+import { useState, useRef, useEffect } from "react";
 
 export default function VoicePage() {
+  const [recording, setRecording] = useState(false);
+  const [callStatus, setCallStatus] = useState("Prêt à appeler");
+  const [transcript, setTranscript] = useState("");
+  const [conversation, setConversation] = useState<{ role: string; text: string }[]>([]);
+  const [agentSpeaking, setAgentSpeaking] = useState(false);
+
   const wsRef = useRef<WebSocket | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const [recording, setRecording] = useState(false);
-  const [transcript, setTranscript] = useState<string>("");
-  const [callStatus, setCallStatus] = useState<string>("Prêt à appeler");
-  const [agentSpeaking, setAgentSpeaking] = useState(false);
-  const [conversation, setConversation] = useState<Array<{ role: 'patient' | 'agent', text: string }>>([]);
 
-  const WS_URL = process.env.NEXT_PUBLIC_API_URL || "ws://localhost:3002";
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
 
   const startCall = async () => {
     try {
-      setCallStatus("Connexion au 15...");
-      setTranscript("");
+      // Connect WebSocket
+      const ws = new WebSocket("ws://localhost:3002");
+      wsRef.current = ws;
 
-      console.log("🔌 Connexion WebSocket");
-      wsRef.current = new WebSocket(WS_URL);
-
-      wsRef.current.onopen = () => {
-        console.log("✅ Connecté");
-        setCallStatus("🟢 En ligne - Parlez maintenant");
-        wsRef.current?.send(JSON.stringify({ type: "start_call" }));
+      ws.onopen = () => {
+        console.log("✅ WebSocket connecté");
+        ws.send(JSON.stringify({ type: "start_call" }));
+        setCallStatus("Connexion établie");
       };
 
-      wsRef.current.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         const message = JSON.parse(event.data);
 
-        // Handle patient speech transcript
-        if (message.type === "patient_speech") {
-          const patientText = message.payload.text;
-          setTranscript((prev) => prev + "\n👤 Patient: " + patientText);
-          setConversation(prev => [...prev, { role: 'patient', text: patientText }]);
+        // Handle greeting
+        if (message.type === "greeting") {
+          setConversation(prev => [...prev, {
+            role: "agent",
+            text: message.payload.text
+          }]);
         }
 
-        // Handle agent speech with audio playback
+        // Handle patient speech
+        if (message.type === "patient_speech") {
+          setConversation(prev => [...prev, {
+            role: "patient",
+            text: message.payload.text
+          }]);
+        }
+
+        // Handle agent speech
         if (message.type === "agent_speech") {
           const agentText = message.payload.text;
           const audioBase64 = message.payload.audio;
 
-          // Display agent text
-          setTranscript((prev) => prev + "\n🤖 Agent ARM: " + agentText);
-          setConversation(prev => [...prev, { role: 'agent', text: agentText }]);
+          setConversation(prev => [...prev, {
+            role: "agent",
+            text: agentText
+          }]);
 
-          // Play audio if available
-          if (audioBase64) {
-            try {
-              console.log("🔊 Playing agent audio...");
+          // ⏸️ PAUSE micro pendant que l'agent parle
+          setAgentSpeaking(true);
+          if (mediaRecorderRef.current?.state === "recording") {
+            mediaRecorderRef.current.pause();
+            console.log("⏸️ Micro mis en pause (agent parle)");
+          }
 
-              // ✅ PAUSE MICRO pendant que l'agent parle
-              setAgentSpeaking(true);
-              if (mediaRecorderRef.current?.state === "recording") {
-                mediaRecorderRef.current.pause();
-                console.log("⏸️  Micro en pause");
-              }
+          // Play agent audio
+          try {
+            const audioBlob = new Blob([Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0))], { type: "audio/mpeg" });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
 
-              // Decode base64 to binary
-              const binaryString = atob(audioBase64);
-              const bytes = new Uint8Array(binaryString.length);
-              for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-              }
-
-              // Create blob and play
-              const audioBlob = new Blob([bytes], { type: 'audio/mpeg' });
-              const audioUrl = URL.createObjectURL(audioBlob);
-              const audio = new Audio(audioUrl);
-
-              audio.play().catch(err => {
-                console.error("❌ Error playing audio:", err);
-                // Resume micro même en cas d'erreur
-                setAgentSpeaking(false);
-                if (mediaRecorderRef.current?.state === "paused") {
-                  mediaRecorderRef.current.resume();
-                }
-              });
-
-              // ✅ RESUME MICRO quand audio terminé
-              audio.onended = () => {
-                console.log("✅ Audio terminé, reprise micro");
-                setAgentSpeaking(false);
-                if (mediaRecorderRef.current?.state === "paused") {
-                  mediaRecorderRef.current.resume();
-                  console.log("▶️  Micro réactivé");
-
-                  // ✅ IMPORTANT: Redémarrer le cycle stop/start
-                  setTimeout(() => {
-                    if (mediaRecorderRef.current?.state === 'recording') {
-                      mediaRecorderRef.current.stop();
-                    }
-                  }, 3000);
-                }
-                URL.revokeObjectURL(audioUrl);
-              };
-
-            } catch (error) {
-              console.error("❌ Error decoding/playing audio:", error);
-              // Resume micro en cas d'erreur
+            audio.play().catch(err => {
+              console.error("❌ Error playing audio:", err);
               setAgentSpeaking(false);
               if (mediaRecorderRef.current?.state === "paused") {
                 mediaRecorderRef.current.resume();
               }
+            });
+
+            audio.onended = () => {
+              console.log("✅ Audio terminé, reprise micro");
+              setAgentSpeaking(false);
+              if (mediaRecorderRef.current?.state === "paused") {
+                mediaRecorderRef.current.resume();
+                console.log("▶️ Micro réactivé");
+
+                setTimeout(() => {
+                  if (mediaRecorderRef.current?.state === 'recording') {
+                    mediaRecorderRef.current.stop();
+                  }
+                }, 3000);
+              }
+              URL.revokeObjectURL(audioUrl);
+            };
+
+          } catch (error) {
+            console.error("❌ Error decoding/playing audio:", error);
+            setAgentSpeaking(false);
+            if (mediaRecorderRef.current?.state === "paused") {
+              mediaRecorderRef.current.resume();
             }
           }
         }
 
-        // Handle partial transcript (kept for backward compatibility)
         if (message.type === "partial_transcript") {
           const newText = message.payload.text;
           setTranscript((prev) => prev + " " + newText);
@@ -119,59 +118,51 @@ export default function VoicePage() {
         }
       };
 
-      wsRef.current.onerror = (error) => {
-        console.error("❌ Erreur WebSocket:", error);
-        setCallStatus("❌ Erreur de connexion");
+      ws.onerror = (err) => {
+        console.error("❌ WebSocket error:", err);
+        setCallStatus("Erreur de connexion");
       };
 
-      wsRef.current.onclose = () => {
-        setCallStatus("Appel terminé");
+      ws.onclose = () => {
+        console.log("🔴 WebSocket closed");
+        setCallStatus("Déconnecté");
       };
 
-      // Capture micro
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      let mimeType = 'audio/webm;codecs=opus';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/webm';
-      }
-
-      const mediaRecord = new MediaRecorder(stream, {
-        mimeType,
-        audioBitsPerSecond: 128000
+      // Start microphone capture
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 48000,
+        },
       });
 
+      const mimeType = "audio/webm;codecs=opus";
+      const mediaRecord = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mediaRecord;
 
-      mediaRecord.ondataavailable = async (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+      mediaRecord.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
         }
       };
 
       mediaRecord.onstop = async () => {
         if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-          // Create complete WebM blob from accumulated chunks
           const completeBlob = new Blob(audioChunksRef.current, { type: mimeType });
           console.log(`🎵 Sending complete audio: ${completeBlob.size} bytes`);
 
           const arrayBuf = await completeBlob.arrayBuffer();
           wsRef.current.send(arrayBuf);
 
-          // Clear chunks for next recording
           audioChunksRef.current = [];
         }
 
-        // IMPORTANT: Toujours redémarrer l'enregistrement si le MediaRecorder existe et n'est pas intentionnellement arrêté
-        // On vérifie que le MediaRecorder existe toujours (pas supprimé par stopCall)
         if (mediaRecorderRef.current && mediaRecorderRef.current.stream.active) {
-          // Attendre un peu avant de redémarrer (éviter spam)
           setTimeout(() => {
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'recording') {
               console.log('🔄 Restarting recording cycle...');
               mediaRecorderRef.current.start();
 
-              // Reprogrammer le prochain stop après 3 secondes
               setTimeout(() => {
                 if (mediaRecorderRef.current?.state === 'recording') {
                   mediaRecorderRef.current.stop();
@@ -182,10 +173,8 @@ export default function VoicePage() {
         }
       };
 
-      // Start recording
       mediaRecord.start();
 
-      // Stop after 3 seconds to trigger onstop and send accumulated data
       setTimeout(() => {
         if (mediaRecord.state === 'recording') {
           mediaRecord.stop();
@@ -213,111 +202,138 @@ export default function VoicePage() {
   };
 
   return (
-    <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto" }}>
-      <h1 style={{ textAlign: "center" }}>🚨 Urgences Médicales</h1>
-
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      padding: "20px",
+      fontFamily: "system-ui, -apple-system, sans-serif"
+    }}>
       <div style={{
-        padding: "20px",
-        background: recording ? "#ffebee" : "#e8f5e9",
-        borderRadius: "12px",
-        marginBottom: "20px",
-        textAlign: "center"
+        background: "white",
+        borderRadius: "24px",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+        padding: "40px",
+        maxWidth: "600px",
+        width: "100%"
       }}>
-        <h2>{callStatus}</h2>
-        {agentSpeaking && (
-          <p style={{ color: "#2196f3", fontSize: "16px", margin: "10px 0" }}>
-            🤖 Agent ARM parle... (micro en pause)
-          </p>
-        )}
-        {recording && !agentSpeaking && (
-          <p style={{ color: "#4caf50", fontSize: "16px", margin: "10px 0" }}>
-            🎤 À votre tour de parler (chunks 2s)
-          </p>
-        )}
-      </div>
-
-      {/* Conversation History */}
-      {conversation.length > 0 && (
         <div style={{
-          maxWidth: "800px",
-          margin: "20px auto",
-          padding: "20px",
-          backgroundColor: "#ffffff",
-          borderRadius: "10px",
-          maxHeight: "400px",
-          overflowY: "auto",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+          textAlign: "center",
+          marginBottom: "30px"
         }}>
-          <h3 style={{ marginTop: 0, marginBottom: "15px", color: "#333" }}>📝 Historique de conversation</h3>
-          {conversation.map((msg, idx) => (
-            <div key={idx} style={{
-              padding: "12px 16px",
-              margin: "10px 0",
-              borderRadius: "8px",
-              backgroundColor: msg.role === 'agent' ? '#e3f2fd' : '#fff3e0',
-              border: msg.role === 'agent' ? '2px solid #2196f3' : '2px solid #ff9800'
-            }}>
-              <strong style={{ color: msg.role === 'agent' ? '#1565c0' : '#e65100', fontSize: '14px' }}>
-                {msg.role === 'agent' ? '🤖 Agent ARM:' : '👤 Patient:'}
-              </strong>
-              <p style={{ margin: '8px 0 0 0', color: '#212121', fontSize: '15px', lineHeight: '1.5' }}>{msg.text}</p>
-            </div>
-          ))}
+          <div style={{
+            fontSize: "48px",
+            marginBottom: "10px"
+          }}>🚑</div>
+          <h1 style={{
+            fontSize: "32px",
+            fontWeight: "700",
+            color: "#1a1a1a",
+            margin: "0 0 10px 0"
+          }}>Urgences Médicales</h1>
+          <p style={{
+            color: "#666",
+            fontSize: "16px",
+            margin: 0
+          }}>Service d'aide médicale - 15</p>
         </div>
-      )}
 
-      <div style={{ textAlign: "center", marginBottom: "30px" }}>
-        {!recording ? (
-          <button
-            onClick={startCall}
-            style={{
-              padding: "20px 40px",
-              fontSize: "24px",
-              background: "#d32f2f",
-              color: "white",
-              border: "none",
-              borderRadius: "50px",
-              cursor: "pointer",
-              boxShadow: "0 4px 12px rgba(211, 47, 47, 0.4)"
-            }}
-          >
-            📞 Appeler le 15
-          </button>
-        ) : (
-          <button
-            onClick={stopCall}
-            style={{
-              padding: "20px 40px",
-              fontSize: "24px",
-              background: "#424242",
-              color: "white",
-              border: "none",
-              borderRadius: "50px",
-              cursor: "pointer"
-            }}
-          >
-            ⏹️ Raccrocher
-          </button>
-        )}
-      </div>
-
-      <div style={{
-        background: "#fff",
-        padding: "20px",
-        borderRadius: "12px",
-        border: "1px solid #ddd",
-        minHeight: "200px"
-      }}>
-        <h3>📝 Transcription en temps réel</h3>
-        <p style={{
-          fontSize: "16px",
-          lineHeight: "1.8",
-          color: transcript ? "#000" : "#999",
-          whiteSpace: "pre-wrap"
+        <div style={{
+          padding: "20px",
+          background: recording ? "#af2338ff" : "#099e16ff",
+          borderRadius: "12px",
+          marginBottom: "20px",
+          textAlign: "center",
+          color: "white",
+          fontWeight: "600",
+          fontSize: "18px"
         }}>
-          {transcript || "En attente..."}
-        </p>
+          {recording ? "🔴 Appel en cours" : "🟢 Prêt à appeler"}
+        </div>
+
+        {agentSpeaking && (
+          <div style={{
+            padding: "15px",
+            background: "#2196f3",
+            color: "white",
+            borderRadius: "12px",
+            marginBottom: "20px",
+            textAlign: "center",
+            fontWeight: "600"
+          }}>
+            🗣️ L'agent parle...
+          </div>
+        )}
+
+        {recording && !agentSpeaking && (
+          <div style={{
+            padding: "15px",
+            background: "#4caf50",
+            color: "white",
+            borderRadius: "12px",
+            marginBottom: "20px",
+            textAlign: "center",
+            fontWeight: "600"
+          }}>
+            🎤 Vous parlez...
+          </div>
+        )}
+
+        {conversation.length > 0 && (
+          <div style={{
+            marginBottom: "20px",
+            maxHeight: "300px",
+            overflowY: "auto",
+            background: "#f5f5f5",
+            borderRadius: "12px",
+            padding: "15px"
+          }}>
+            {conversation.map((msg, idx) => (
+              <div key={idx} style={{
+                marginBottom: "12px",
+                padding: "12px",
+                background: msg.role === "patient" ? "#e3f2fd" : "#fff3e0",
+                borderRadius: "8px",
+                borderLeft: `4px solid ${msg.role === "patient" ? "#2196f3" : "#ff9800"}`
+              }}>
+                <div style={{
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  color: msg.role === "patient" ? "#1976d2" : "#f57c00",
+                  marginBottom: "4px"
+                }}>
+                  {msg.role === "patient" ? "👤 Vous" : "🚑 Agent ARM"}
+                </div>
+                <div style={{ fontSize: "14px", color: "#333" }}>{msg.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button
+          onClick={recording ? stopCall : startCall}
+          style={{
+            width: "100%",
+            padding: "18px",
+            fontSize: "18px",
+            fontWeight: "700",
+            color: "white",
+            background: recording
+              ? "linear-gradient(135deg, #e53935 0%, #c62828 100%)"
+              : "linear-gradient(135deg, #43a047 0%, #2e7d32 100%)",
+            border: "none",
+            borderRadius: "12px",
+            cursor: "pointer",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+            transition: "all 0.3s ease"
+          }}
+        >
+          {recording ? "📞 Raccrocher" : "📞 Appeler le 15"}
+        </button>
       </div>
-    </div >
+    </div>
   );
 }
