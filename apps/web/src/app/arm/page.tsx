@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import io, { Socket } from "socket.io-client";
 
@@ -104,8 +104,9 @@ export default function ArmPage() {
 
   // data
   const [incidents, setIncidents] = useState<Incident[]>(MOCK);
+  const incidentsRef = useRef<Incident[]>(MOCK);
   const [selectedId, setSelectedId] = useState<string>(MOCK[0]?.id ?? "");
-  const selected = incidents.find((i) => i.id === selectedId) ?? incidents[0];
+  const selected = incidents.find((i: Incident) => i.id === selectedId) ?? incidents[0];
 
   // filters
   const [q, setQ] = useState("");
@@ -122,10 +123,10 @@ export default function ArmPage() {
   // form states
   const [assignTeam, setAssignTeam] = useState("AMB-12");
   const [editNotes, setEditNotes] = useState(selected?.notes ?? "");
-  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");
-
+  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");  const [trackingUrl, setTrackingUrl] = useState("");
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
+    incidentsRef.current = incidents;
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Socket init */
@@ -142,6 +143,38 @@ useEffect(() => {
     s.on("connect", () => console.log("socket connected", s?.id));
     s.on("arm:connected", (p) => console.log("arm:connected", p));
     s.on("incident:update", (evt) => console.log("incident:update", evt));
+
+    // Respond to tracking clients requesting current state
+    s.on("tracking:request", (evt: any) => {
+      try {
+        if (!evt?.token) return;
+        const found = incidentsRef.current.find((i: Incident) => i.id === evt.token);
+        if (!found) return;
+
+        // extract last assigned team from notes if present
+        const notes = found.notes ?? "";
+        const m = notes.match(/Assigné:\s*([A-Z0-9-]+)/i);
+        const team = m ? m[1] : "AMB-?";
+
+        s?.emit("tracking:assign", {
+          token: found.id,
+          status: "assigned",
+          ambulance: { label: team },
+          incident: { label: found.locationLabel, lat: found.lat, lng: found.lng },
+          destinationHospital: {
+            name: "Hôpital Européen Georges-Pompidou",
+            address: "20 Rue Leblanc, 75015 Paris",
+            lat: 48.8414,
+            lng: 2.2790,
+          },
+          ambulancePos: { lat: found.lat, lng: found.lng, updatedAt: new Date().toISOString() },
+          etaMinutes: 7,
+          expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
+        });
+      } catch (e) {
+        console.error("tracking:request handler error", e);
+      }
+    });
 
     setSocket(s);
   })();
@@ -189,7 +222,36 @@ useEffect(() => {
         i.id === selected.id ? { ...i, status: "en_cours", notes: (i.notes ?? "") + `\nAssigné: ${assignTeam}` } : i
       )
     );
+    
+    // Emit to ARM backend
     emitAction("assign_ambulance", { incidentId: selected.id, team: assignTeam });
+    
+    // Generate tracking URL
+    const trackingToken = selected.id;
+    const url = `/t/${trackingToken}`;
+    setTrackingUrl(url);
+    
+    // Emit to tracking page (real-time update)
+    socket?.emit("tracking:assign", {
+      token: trackingToken,
+      status: "assigned",
+      ambulance: { label: assignTeam },
+      incident: { 
+        label: selected.locationLabel, 
+        lat: selected.lat, 
+        lng: selected.lng 
+      },
+      destinationHospital: {
+        name: "Hôpital Européen Georges-Pompidou",
+        address: "20 Rue Leblanc, 75015 Paris",
+        lat: 48.8414,
+        lng: 2.2790,
+      },
+      ambulancePos: { lat: selected.lat, lng: selected.lng, updatedAt: new Date().toISOString() },
+      etaMinutes: 7,
+      expiresAt: new Date(Date.now() + 30 * 60000).toISOString(), // 30 min
+    });
+    
     setOpenAssign(false);
   }
 
@@ -444,8 +506,35 @@ useEffect(() => {
           <input className="input" value={assignTeam} onChange={(e) => setAssignTeam(e.target.value)} placeholder="ex: AMB-12" />
           <button className="btn btnBlue" onClick={onAssign}>
             Confirmer l’assignation
-          </button>
-        </div>
+          </button>          
+          {trackingUrl && (
+            <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: "0.75rem", background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+              <div style={{ fontSize: "0.875rem", color: "#94a3b8", marginBottom: "0.5rem" }}>Lien de suivi créé :</div>
+              <a 
+                href={trackingUrl} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={{ 
+                  color: "#10b981", 
+                  textDecoration: "none",
+                  fontWeight: "600",
+                  wordBreak: "break-all"
+                }}
+              >
+                {window.location.origin}{trackingUrl}
+              </a>
+              <button 
+                className="btn btnGhost" 
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.origin + trackingUrl);
+                  alert("Lien copié !");
+                }}
+                style={{ marginTop: "0.75rem", width: "100%" }}
+              >
+                📋 Copier le lien
+              </button>
+            </div>
+          )}        </div>
       </Modal>
 
       <Modal open={openEdit} title="Corriger les informations" onClose={() => setOpenEdit(false)}>
