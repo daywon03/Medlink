@@ -67,10 +67,11 @@ export default function TrackingClient({ token }: { token: string }) {
 
     const init = async () => {
       try {
-        await fetch("/api/socket"); // wake socket route (comme ton ARM)
         if (cancelled) return;
 
-        s = io({ path: "/api/socketio" });
+        // Connect directly to NestJS backend
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3002";
+        s = io(wsUrl);
 
         s.on("connect", () => setSocketOk(true));
         s.on("disconnect", () => setSocketOk(false));
