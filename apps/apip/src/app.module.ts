@@ -2,21 +2,29 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TranscriptionGateway } from './ws/transcription.gateway';
+import { ArmGateway } from './gateways/arm.gateway';
+import { TrackingGateway } from './gateways/tracking.gateway';
 import { SupabaseService } from './supabase/supabase.service';
-import { ElevenLabsService } from './elevenlabs/elevenlabs.service';
-import { ElevenLabsRealtimeService } from './elevenlabs/elevenlabs-realtime.service';
+import { RideService } from './services/ride.service';
+import { ElevenLabsRealtimeService } from './elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
 import { ElizaArmService } from './eliza/eliza-arm.service';
 import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
+import { TriageController } from './controllers/triage.controller';
+
 @Module({
   imports: [],
-  controllers: [AppController],
+  controllers: [AppController, TriageController],
   providers: [
     AppService,
-    TranscriptionGateway,
+    // WebSocket Gateways
+    TranscriptionGateway,  // /voice (existing)
+    ArmGateway,            // /arm (new)
+    TrackingGateway,       // /t/[token] (new)
+    // Services
     SupabaseService,
-    ElevenLabsService,
-    ElevenLabsRealtimeService,
-    ElevenLabsTTSService,
+    RideService,
+    ElevenLabsRealtimeService,  // ElevenLabs STT (Scribe Realtime v2)
+    ElevenLabsTTSService,       // ElevenLabs TTS
     ElizaArmService,
   ],
 })
