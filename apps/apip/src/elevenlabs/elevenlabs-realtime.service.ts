@@ -40,7 +40,8 @@ export class ElevenLabsRealtimeService {
 
         return new Promise((resolve, reject) => {
             // Utilisons VAD (Voice Activity Detection) pour détection automatique
-            const url = `${this.wsUrl}?model_id=scribe_v2_realtime&language_code=fr&audio_format=pcm_16000&commit_strategy=vad`;
+            // vad_threshold=0.3 : Plus sensible pour capter parole faible/accent
+            const url = `${this.wsUrl}?model_id=scribe_v2_realtime&language_code=fr&audio_format=pcm_16000&commit_strategy=vad&vad_threshold=0.3`;
 
             const ws = new WebSocket(url, {
                 headers: {

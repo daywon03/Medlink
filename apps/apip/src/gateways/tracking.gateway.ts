@@ -10,7 +10,8 @@ import type { TrackingAssignPayload } from '../types';
  */
 @WebSocketGateway({
   cors: {
-    origin: '*', // TODO: Configure for production
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true
   },
 })
 export class TrackingGateway extends BaseGateway {

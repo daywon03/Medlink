@@ -23,33 +23,6 @@ const TriageList = dynamic(() => import("./TriageList"), { ssr: false });
 
 const PAGE_SIZE = 8;
 
-const MOCK: Incident[] = [
-  {
-    id: "INC-1024",
-    createdAt: "2025-12-26 12:20",
-    status: "nouveau",
-    priority: 2,
-    title: "Douleur thoracique + nausées",
-    locationLabel: "Paris 15e",
-    lat: 48.8414,
-    lng: 2.3007,
-    symptoms: ["douleur poitrine", "nausées", "sueurs"],
-    notes: "Patient anxieux, douleur depuis 20 min.",
-  },
-  {
-    id: "INC-1025",
-    createdAt: "2025-12-26 12:23",
-    status: "en_cours",
-    priority: 3,
-    title: "Fièvre + vertiges",
-    locationLabel: "Issy-les-Moulineaux",
-    lat: 48.8245,
-    lng: 2.2736,
-    symptoms: ["fièvre", "vertiges", "fatigue"],
-    notes: "Température 39°C, état général altéré.",
-  },
-];
-
 function statusLabel(s: IncidentStatus) {
   if (s === "nouveau") return "Nouveau";
   if (s === "en_cours") return "En cours";
@@ -104,9 +77,9 @@ export default function ArmPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
 
   // data
-  const [incidents, setIncidents] = useState<Incident[]>(MOCK);
-  const incidentsRef = useRef<Incident[]>(MOCK);
-  const [selectedId, setSelectedId] = useState<string>(MOCK[0]?.id ?? "");
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const incidentsRef = useRef<Incident[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("");
   const selected = incidents.find((i: Incident) => i.id === selectedId) ?? incidents[0];
 
   // filters
@@ -189,6 +162,34 @@ export default function ArmPage() {
       }
     };
   }, []);
+
+  /** Fetch real calls from API */
+  useEffect(() => {
+    async function fetchCalls() {
+      try {
+        const res = await fetch('http://localhost:3001/api/calls');
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          setIncidents(json.data);
+          incidentsRef.current = json.data;
+          // Auto-select first if none selected
+          if (!selectedId && json.data.length > 0) {
+            setSelectedId(json.data[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch calls:', err);
+        // Keep empty incidents on error
+      }
+    }
+
+    fetchCalls();
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(fetchCalls, 10000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
 
 
   /** Filter + paginate */

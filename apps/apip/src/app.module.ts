@@ -10,10 +10,11 @@ import { ElevenLabsRealtimeService } from './elevenlabs/elevenlabs-realtime.serv
 import { ElizaArmService } from './eliza/eliza-arm.service';
 import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
 import { TriageController } from './controllers/triage.controller';
+import { CallsController } from './controllers/calls.controller';
 
 @Module({
   imports: [],
-  controllers: [AppController, TriageController],
+  controllers: [AppController, TriageController, CallsController],
   providers: [
     AppService,
     // WebSocket Gateways
