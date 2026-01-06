@@ -89,10 +89,10 @@ export class ElevenLabsTTSService {
                 throw new Error(`Erreur liste voix: ${response.status}`);
             }
 
-            const data = await response.json();
+            const data = (await response.json()) as { voices: any[] };
 
             // Filtre les voix françaises
-            const frenchVoices = data.voices.filter((voice: any) =>
+            const frenchVoices = (data.voices ?? []).filter((voice: any) =>
                 voice.labels?.language === 'fr' ||
                 voice.name.toLowerCase().includes('french')
             );

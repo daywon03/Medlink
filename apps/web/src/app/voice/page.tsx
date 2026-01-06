@@ -23,8 +23,14 @@ export default function VoicePage() {
 
   const startCall = async () => {
     try {
+      // Resolve WebSocket URL: prefer env var, otherwise derive from location
+      const defaultHost = typeof window !== "undefined" ? window.location.hostname : "localhost";
+      const defaultProto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss" : "ws";
+      const envUrl = (process.env.NEXT_PUBLIC_WS_URL as string) || "";
+      const wsUrl = envUrl || `${defaultProto}://${defaultHost}:3002`;
+
       // Connect WebSocket
-      const ws = new WebSocket("ws://localhost:3002");
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -119,12 +125,16 @@ export default function VoicePage() {
       };
 
       ws.onerror = (err) => {
-        console.error("❌ WebSocket error:", err);
+        // Browser gives very little info in the Event object for security.
+        console.error("❌ WebSocket error event:", err, {
+          url: (ws as any)?.url ?? wsUrl,
+          readyState: ws.readyState,
+        });
         setCallStatus("Erreur de connexion");
       };
 
-      ws.onclose = () => {
-        console.log("🔴 WebSocket closed");
+      ws.onclose = (ev) => {
+        console.log("🔴 WebSocket closed", { code: (ev as CloseEvent).code, reason: (ev as CloseEvent).reason, wasClean: (ev as CloseEvent).wasClean });
         setCallStatus("Déconnecté");
       };
 

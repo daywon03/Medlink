@@ -16,6 +16,7 @@ type Incident = {
   lng: number;
   symptoms: string[];
   notes?: string;
+  patientPhone?: string;
 };
 
 const MapPanel = dynamic(() => import("./ui/MapPanel"), { ssr: false });
@@ -34,6 +35,7 @@ const MOCK: Incident[] = [
     lng: 2.3007,
     symptoms: ["douleur poitrine", "nausées", "sueurs"],
     notes: "Patient anxieux, douleur depuis 20 min.",
+    patientPhone: "+33612345678",
   },
   {
     id: "INC-1025",
@@ -46,6 +48,7 @@ const MOCK: Incident[] = [
     lng: 2.2736,
     symptoms: ["fièvre", "vertiges", "fatigue"],
     notes: "Température 39°C, état général altéré.",
+    patientPhone: "+33687654321",
   },
 ];
 
@@ -124,6 +127,8 @@ export default function ArmPage() {
   const [assignTeam, setAssignTeam] = useState("AMB-12");
   const [editNotes, setEditNotes] = useState(selected?.notes ?? "");
   const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");  const [trackingUrl, setTrackingUrl] = useState("");
+  const [sendSmsOnAssign, setSendSmsOnAssign] = useState(true);
+  const [smsLoading, setSmsLoading] = useState(false);
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
     incidentsRef.current = incidents;
@@ -217,6 +222,7 @@ useEffect(() => {
 
   function onAssign() {
     if (!selected) return;
+    
     setIncidents((prev) =>
       prev.map((i) =>
         i.id === selected.id ? { ...i, status: "en_cours", notes: (i.notes ?? "") + `\nAssigné: ${assignTeam}` } : i
@@ -252,7 +258,39 @@ useEffect(() => {
       expiresAt: new Date(Date.now() + 30 * 60000).toISOString(), // 30 min
     });
     
+    setSmsLoading(false);
     setOpenAssign(false);
+  }
+
+  function onSendSmsLink() {
+    if (!selected || !selected.patientPhone || !trackingUrl) return;
+    setSmsLoading(true);
+
+    const fullUrl = typeof window !== "undefined" ? `${window.location.origin}${trackingUrl}` : trackingUrl;
+    const assignedTeam = selected.notes?.match(/Assigné:\s*([A-Z0-9-]+)/i)?.[1] || "Ambulance";
+
+    fetch("/api/send-sms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phoneNumber: selected.patientPhone,
+        message: `Medlink: Une ambulance (${assignedTeam}) a été assignée. Suivez votre prise en charge: ${fullUrl}`,
+      }),
+    })
+      .then((res) => {
+        if (res.ok) {
+          console.log("✅ SMS envoyé");
+          alert("SMS envoyé au patient");
+        } else {
+          console.error("❌ Erreur SMS", res.status);
+          alert("Erreur lors de l'envoi du SMS");
+        }
+      })
+      .catch((err) => {
+        console.error("❌ Erreur", err);
+        alert("Erreur lors de l'envoi du SMS");
+      })
+      .finally(() => setSmsLoading(false));
   }
 
   function onEdit() {
@@ -458,6 +496,13 @@ useEffect(() => {
                 <div className="noteText">{selected?.notes ?? "Aucune note"}</div>
               </div>
 
+              {selected?.patientPhone && (
+                <div className="noteBox" style={{ background: "rgba(59, 130, 246, 0.1)", borderColor: "rgba(59, 130, 246, 0.3)" }}>
+                  <div className="muted small">Téléphone du patient</div>
+                  <div className="noteText" style={{ fontSize: "1.1rem", fontWeight: "600", color: "rgba(59, 130, 246, 0.95)" }}>{selected.patientPhone}</div>
+                </div>
+              )}
+
               <div className="btnRow">
                 <button className="btn btnBlue" onClick={() => setOpenAssign(true)} disabled={!selected}>
                   🚑 Assigner
@@ -469,6 +514,23 @@ useEffect(() => {
                   📩 Notifier
                 </button>
               </div>
+
+              {selected?.status === "en_cours" && selected?.patientPhone && trackingUrl && (
+                <button 
+                  className="btn" 
+                  onClick={onSendSmsLink} 
+                  disabled={smsLoading}
+                  style={{ 
+                    width: "100%", 
+                    marginTop: "10px", 
+                    background: "rgba(168, 85, 247, 0.16)", 
+                    borderColor: "rgba(168, 85, 247, 0.25)",
+                    color: "#e9d5ff"
+                  }}
+                >
+                  {smsLoading ? "📱 Envoi en cours..." : "📱 Envoyer lien par SMS"}
+                </button>
+              )}
             </div>
 
             <div className="card">
