@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import io, { Socket } from "socket.io-client";
+import ArmStyles from "../arm/ui/ArmStyles";
+import MedlinkLayout from "../ui/MedlinkLayout";
 
 type RideStatus = "assigned" | "en_route" | "on_scene" | "transport" | "arrived";
 
@@ -155,59 +157,48 @@ export default function TrackingClient({ token }: { token: string }) {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#070A12] text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-sm text-white/60">Medlink • Suivi</div>
-          <h1 className="mt-1 text-xl font-semibold">Lien indisponible</h1>
-          <p className="mt-3 text-white/70">{error}</p>
+      <div className="medCentered">
+        <div className="medMessageCard">
+          <div className="muted">MedLink • Suivi</div>
+          <div className="medMessageTitle">Lien indisponible</div>
+          <div className="medMessageText">{error}</div>
         </div>
+        <ArmStyles />
       </div>
     );
   }
 
   if (!ride) {
     return (
-      <div className="min-h-screen bg-[#070A12] text-white flex items-center justify-center">
-        Chargement…
+      <div className="medCentered">
+        <div className="medMessageCard">
+          <div className="medMessageTitle">Chargement…</div>
+        </div>
+        <ArmStyles />
       </div>
     );
   }
 
   if (expired) {
     return (
-      <div className="min-h-screen bg-[#070A12] text-white flex items-center justify-center p-6">
-        <div className="max-w-md w-full rounded-2xl border border-white/10 bg-white/5 p-6">
-          <div className="text-sm text-white/60">Medlink • Suivi</div>
-          <h1 className="mt-1 text-xl font-semibold">Suivi expiré</h1>
-          <p className="mt-3 text-white/70">Ce lien n’est plus actif.</p>
+      <div className="medCentered">
+        <div className="medMessageCard">
+          <div className="muted">MedLink • Suivi</div>
+          <div className="medMessageTitle">Suivi expiré</div>
+          <div className="medMessageText">Ce lien n’est plus actif.</div>
         </div>
+        <ArmStyles />
       </div>
     );
   }
 
   return (
-    <div className="armShell">
-      {/* Header - ARM style */}
-      <header className="armHeader">
-        <div className="armHeaderInner">
-          <div className="brand">
-            <div className="brandIcon">🚑</div>
-            <div>
-              <div className="muted">Medlink • Suivi</div>
-              <div className="title">Votre prise en charge</div>
-              <div className="sub">
-                <span className="dot" />
-                <span>{statusLabel(ride.status)}</span>
-                <span className="sep">•</span>
-                <span>Ambulance: {ride.ambulance.label}</span>
-                <span className="sep">•</span>
-                <span className={socketOk ? "text-emerald-400" : "text-orange-400"}>
-                  {socketOk ? "En direct" : "Synchronisation…"}
-                </span>
-              </div>
-            </div>
-          </div>
-
+    <MedlinkLayout
+      title="Votre prise en charge"
+      subtitle={`${statusLabel(ride.status)} • Ambulance ${ride.ambulance.label} • ${socketOk ? "En direct" : "Synchronisation…"}`}
+      hideSidebar
+      actions={
+        <>
           <button
             className="btn btnGhost"
             onClick={async () => {
@@ -224,130 +215,72 @@ export default function TrackingClient({ token }: { token: string }) {
           >
             Partager 🔗
           </button>
+          <div className="medAvatar" />
+        </>
+      }
+    >
+      <div className="medCenteredContent trackShell">
+        <div className="trackHero">
+          <div>
+            <div className="muted">Suivi en temps réel</div>
+            <div className="cardTitle">Ambulance {ride.ambulance.label}</div>
+          </div>
+          <div className="trackStatus">{statusLabel(ride.status)}</div>
         </div>
-      </header>
 
-      <main className="armMain">
-        {/* Grid: left (info) + center (details) + right (map) */}
-        <section className="grid">
-          {/* LEFT: Infos détaillées */}
-          <div className="card">
-            <div className="cardHead">
-              <div>
-                <div className="muted">Statut actuel</div>
-                <div className="cardTitle">Progression</div>
-              </div>
+        <div className="card trackMapCard">
+          <div className="trackMapWrap">
+            <TrackMap
+              ambulance={ride.ambulancePos}
+              incident={{ lat: ride.incident.lat, lng: ride.incident.lng, label: ride.incident.label }}
+              hospital={{
+                lat: ride.destinationHospital.lat,
+                lng: ride.destinationHospital.lng,
+                label: ride.destinationHospital.name,
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="card trackSheet">
+          <div className="trackDriver">
+            <div className="trackDriverAvatar">🚑</div>
+            <div>
+              <div className="muted small">Équipe en route</div>
+              <div className="strong">{ride.ambulance.label}</div>
+              <div className="muted small">Centre d’opérations MedLink</div>
             </div>
+            <button className="btn btnGhost">Appeler</button>
+          </div>
 
-            <div className="cardBody space-y-4">
-              {/* ETA + Ambulance */}
-              <div>
-                <div className="muted text-xs">Ambulance assignée</div>
-                <div className="text-lg font-semibold text-white mt-1">{ride.ambulance.label}</div>
-              </div>
-
-              {ride.etaMinutes != null && (
-                <div className="border-t border-slate-700/30 pt-4">
-                  <div className="muted text-xs">Arrivée estimée</div>
-                  <div className="text-3xl font-bold text-emerald-400 mt-1">
-                    {ride.etaMinutes}
-                    <span className="text-sm text-slate-400 ml-2">min</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Timeline */}
-              <div className="border-t border-slate-700/30 pt-4">
-                <div className="muted text-xs mb-3">Progression</div>
-                <div className="space-y-3">
-                  <div className="flex gap-3">
-                    <div className="relative flex flex-col items-center">
-                      <div className="h-3 w-3 rounded-full bg-emerald-400"></div>
-                      <div className="h-6 w-0.5 bg-slate-700 mt-2"></div>
-                    </div>
-                    <div className="pt-0.5">
-                      <p className="text-sm font-medium text-emerald-400">Ambulance assignée</p>
-                      <p className="text-xs text-slate-500">Maintenant</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="relative flex flex-col items-center">
-                      <div className="h-3 w-3 rounded-full bg-blue-500"></div>
-                      <div className="h-6 w-0.5 bg-slate-700 mt-2"></div>
-                    </div>
-                    <div className="pt-0.5">
-                      <p className="text-sm font-medium text-blue-400">En trajet</p>
-                      <p className="text-xs text-slate-500">~{ride.etaMinutes} minutes</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="h-3 w-3 rounded-full bg-slate-600"></div>
-                    </div>
-                    <div className="pt-0.5">
-                      <p className="text-sm font-medium text-slate-300">Arrivée à l'hôpital</p>
-                      <p className="text-xs text-slate-500">À l'arrivée</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+          <div className="trackStatRow">
+            <div>
+              <div className="muted small">Arrivée estimée</div>
+              <div className="trackEta">{ride.etaMinutes != null ? `${ride.etaMinutes} min` : "—"}</div>
+            </div>
+            <div>
+              <div className="muted small">Dernière mise à jour</div>
+              <div className="strong">{new Date(ride.ambulancePos.updatedAt).toLocaleTimeString()}</div>
             </div>
           </div>
 
-          {/* CENTER: Destination card */}
-          <div className="card">
-            <div className="cardHead">
-              <div>
-                <div className="muted">Destination</div>
-                <div className="cardTitle">Hôpital</div>
-              </div>
-            </div>
-
-            <div className="cardBody">
-              <h3 className="font-semibold text-white mb-2">{ride.destinationHospital.name}</h3>
-              <p className="text-sm text-slate-400 mb-4">{ride.destinationHospital.address}</p>
-
-              <div className="border-t border-slate-700/30 pt-4">
-                <div className="muted text-xs mb-3">Lieu de l'appel</div>
-                <h4 className="font-semibold text-white mb-1">{ride.incident.label}</h4>
-                <p className="text-xs text-slate-500">
-                  Mis à jour {new Date(ride.ambulancePos.updatedAt).toLocaleTimeString()}
-                </p>
-              </div>
-            </div>
+          <div className="dividerTop">
+            <div className="muted small">Destination</div>
+            <div className="strong">{ride.destinationHospital.name}</div>
+            <div className="muted small">{ride.destinationHospital.address}</div>
           </div>
 
-          {/* RIGHT: Map (full height) */}
-          <div className="card" style={{ gridColumn: "span 1", gridRow: "span 2" }}>
-            <div className="cardHead">
-              <div>
-                <div className="muted">Carte</div>
-                <div className="cardTitle">Trajectoire ambulance</div>
-              </div>
-            </div>
-
-            <div className="cardBody p-0" style={{ minHeight: "100%" }}>
-              <TrackMap
-                ambulance={ride.ambulancePos}
-                incident={{ lat: ride.incident.lat, lng: ride.incident.lng, label: ride.incident.label }}
-                hospital={{
-                  lat: ride.destinationHospital.lat,
-                  lng: ride.destinationHospital.lng,
-                  label: ride.destinationHospital.name,
-                }}
-              />
-            </div>
+          <div className="dividerTop">
+            <div className="muted small">Lieu de l'appel</div>
+            <div className="strong">{ride.incident.label}</div>
           </div>
-        </section>
+        </div>
 
-        {/* Footer info */}
-        <section className="toolbar" style={{ marginTop: "2rem" }}>
-          <div className="text-center text-xs text-slate-400">
-            <p>Votre localisation exacte est partagée avec l'ambulance.</p>
-            <p>Elle arrivera dès que possible.</p>
-          </div>
-        </section>
-      </main>
-    </div>
+        <div className="medFooterNote">
+          Votre localisation exacte est partagée avec l'ambulance. Elle arrivera dès que possible.
+        </div>
+      </div>
+
+    </MedlinkLayout>
   );
 }
