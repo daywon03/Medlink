@@ -111,6 +111,12 @@ export class SupabaseService {
     confidence: number;
     symptoms?: string[];
     vitalEmergency?: boolean;
+    isPartial?: boolean; // 🆕 Flag résumé partiel
+    // 🆕 Geocoding data
+    nearestHospital?: any;
+    nearestFireStation?: any;
+    patientLocation?: any;
+    eta?: number;
   }) {
     // Vérifier si un report existe déjà
     const { data: existing } = await this.supabase
@@ -128,6 +134,11 @@ export class SupabaseService {
           ai_explanation: triageData.summary,
           classification_confidence: triageData.confidence,
           ai_model_version: 'groq/compound',
+          // 🆕 Sauvegarder données geocoding
+          nearest_hospital_data: triageData.nearestHospital ? JSON.stringify(triageData.nearestHospital) : null,
+          fire_station_data: triageData.nearestFireStation ? JSON.stringify(triageData.nearestFireStation) : null,
+          patient_location: triageData.patientLocation ? JSON.stringify(triageData.patientLocation) : null,
+          estimated_arrival_minutes: triageData.eta || null,
           updated_at: new Date().toISOString()
         })
         .eq('call_id', call_id)
@@ -151,7 +162,12 @@ export class SupabaseService {
           classification_confidence: triageData.confidence,
           classification_source: 'ai_agent',
           ai_model_version: 'groq/compound',
-          validated_by_doctor: false
+          validated_by_doctor: false,
+          // 🆕 Sauvegarder données geocoding
+          nearest_hospital_data: triageData.nearestHospital ? JSON.stringify(triageData.nearestHospital) : null,
+          fire_station_data: triageData.nearestFireStation ? JSON.stringify(triageData.nearestFireStation) : null,
+          patient_location: triageData.patientLocation ? JSON.stringify(triageData.patientLocation) : null,
+          estimated_arrival_minutes: triageData.eta || null
         }])
         .select()
         .single();

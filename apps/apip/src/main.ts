@@ -8,7 +8,7 @@ import { TranscriptionGateway } from './ws/transcription.gateway';
 async function bootstrap() {
   // 1. Crée l'application NestJS
   const app = await NestFactory.create(AppModule, { cors: true });
-  
+
   // 2. Lance l'API REST sur port 3001
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
@@ -17,7 +17,22 @@ async function bootstrap() {
   // 3. Crée le serveur WebSocket sur port 3002
   const wsPort = process.env.WEBSOCKET_PORT ?? 3002;
   const wss = new Server({ port: Number(wsPort) });
-  console.log(`✅ WebSocket server ready on ws://localhost:${wsPort}`);
+
+  // Attend que le serveur soit réellement prêt avant d'afficher le message
+  wss.on('listening', () => {
+    console.log(`✅ WebSocket server ready on ws://localhost:${wsPort}`);
+  });
+
+  // Gestion des erreurs de démarrage du serveur
+  wss.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ Le port ${wsPort} est déjà utilisé. Arrêtez l'autre instance ou changez le port.`);
+      process.exit(1);
+    } else {
+      console.error('❌ Erreur lors du démarrage du serveur WebSocket:', error);
+      process.exit(1);
+    }
+  });
 
   // 4. Récupère le TranscriptionGateway depuis le container NestJS
   const gateway = app.get(TranscriptionGateway);

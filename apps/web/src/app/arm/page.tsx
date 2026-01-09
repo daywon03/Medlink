@@ -157,6 +157,36 @@ export default function ArmPage() {
         }
       });
 
+      // 🆕 Écouter updates appels temps réel
+      s.on('call:update', (data: any) => {
+        console.log('📡 Call update received:', data);
+
+        setIncidents(prev => {
+          const index = prev.findIndex(i => i.id === data.callId);
+
+          if (index !== -1) {
+            // Update appel existant
+            const updated = [...prev];
+            const priorityMap: Record<string, number> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
+
+            updated[index] = {
+              ...updated[index],
+              title: data.summary?.substring(0, 60) || updated[index].title,
+              priority: data.priority ? priorityMap[data.priority] : updated[index].priority,
+              notes: data.summary || updated[index].notes,
+              status: data.isPartial ? 'en_cours' : 'nouveau'
+            };
+
+            return updated;
+          } else {
+            // Nouvel appel pas encore dans la liste - re-fetch
+            console.log('New call detected, refreshing list...');
+            fetchCalls();
+            return prev;
+          }
+        });
+      });
+
       setSocket(s);
     })();
 

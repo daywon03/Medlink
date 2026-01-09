@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { triageCharacter, type Character } from './characters';
 import { collectInfoAction } from './actions';
+import { GeocodingService } from '../services/geocoding.service';
 
 interface Message {
     role: 'system' | 'user' | 'assistant';
@@ -17,6 +18,8 @@ export class ElizaArmService implements OnModuleInit {
     private readonly logger = new Logger(ElizaArmService.name);
     private conversationContexts: Map<string, ConversationContext> = new Map();
     private character: Character;
+
+    constructor(private readonly geocoding: GeocodingService) {}
 
     async onModuleInit() {
         try {
@@ -49,6 +52,33 @@ export class ElizaArmService implements OnModuleInit {
     }
 
     /**
+     * 🆕 Génère résumé progressif selon avancement conversation
+     * Permet affichage dashboard ARM dès le premier échange
+     */
+    private async generateProgressiveSummary(context: ConversationContext): Promise<string> {
+        const messageCount = context.messages.filter(m => m.role !== 'system').length;
+
+        // 1 échange : résumé minimaliste
+        if (messageCount === 2) {
+            const firstUserMsg = context.messages.find(m => m.role === 'user')?.content || '';
+            return `Appel démarré - ${firstUserMsg.substring(0, 80)}...`;
+        }
+
+        // 2-3 échanges : concaténation messages utilisateur
+        if (messageCount < 4) {
+            const userMessages = context.messages
+                .filter(m => m.role === 'user')
+                .map(m => m.content)
+                .join(' | ');
+
+            return `En cours: ${userMessages.substring(0, 150)}...`;
+        }
+
+        // 4+ échanges : résumé complet (ne devrait pas arriver ici normalement)
+        return await this.generateCallSummary(context);
+    }
+
+    /**
      * Generate response using Groq API with Triage Character
      * Now returns both response and triage summary for database save
      */
@@ -64,6 +94,7 @@ export class ElizaArmService implements OnModuleInit {
             confidence: number;
             symptoms: string[];
             vitalEmergency: boolean;
+            isPartial?: boolean; // 🆕 Flag résumé partiel
         };
     }> {
         try {
@@ -141,31 +172,72 @@ export class ElizaArmService implements OnModuleInit {
             this.logger.log(`   Response: "${armResponse.substring(0, 100)}${armResponse.length > 100 ? '...' : ''}"`);
 
             // Générer résumé + classification après quelques échanges
-            // (au lieu d'attendre adresse, génère toujours après 2+ messages)
+            // ✅ NOUVEAU : Dès 2 messages (1 échange) au lieu de 4
             let triageData;
             const messageCount = context.messages.filter(m => m.role !== 'system').length;
 
-            if (messageCount >= 4) { // Au moins 2 échanges (user + assistant x2)
+            if (messageCount >= 2) { // ✅ Dès le premier échange
                 try {
-                    this.logger.log(`🔄 Génération résumé (${messageCount} messages)...`);
+                    this.logger.log(`🔄 Génération résumé progressif (${messageCount} messages)...`);
 
-                    const summary = await this.generateCallSummary(context);
+                    // ✅ Résumé progressif selon avancement
+                    const summary = messageCount >= 4
+                        ? await this.generateCallSummary(context)
+                        : await this.generateProgressiveSummary(context);
+
                     const priority = this.detectPriority(context.collectedInfo);
 
                     triageData = {
                         priority,
                         summary,
-                        confidence: 0.85,
+                        confidence: messageCount >= 4 ? 0.85 : 0.5, // ✅ Confiance progressive
                         symptoms: this.extractSymptoms(context),
-                        vitalEmergency: context.collectedInfo.urgence_vitale || false
+                        vitalEmergency: context.collectedInfo.urgence_vitale || false,
+                        isPartial: messageCount < 4 // 🆕 Flag résumé partiel
                     };
 
-                    this.logger.log(`📋 Triage: ${priority} - "${summary.substring(0, 60)}..."`);
+                    this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);
+
+                    // 🆕 GEOCODING: Si adresse collectée, chercher hôpital + pompiers
+                    if (context.collectedInfo.adresse) {
+                        try {
+                            this.logger.log(`🌍 Geocoding adresse: "${context.collectedInfo.adresse}"`);
+
+                            const location = await this.geocoding.geocodeAddress(context.collectedInfo.adresse);
+
+                            if (location) {
+                                this.logger.log(`📍 Coordonnées: ${location.lat}, ${location.lng}`);
+
+                                // Recherche parallèle hôpitaux + pompiers
+                                const [hospitals, fireStations] = await Promise.all([
+                                    this.geocoding.findNearestHospitals(location, 15),
+                                    this.geocoding.findNearestFireStations(location, 15)
+                                ]);
+
+                                if (hospitals.length > 0) {
+                                    triageData.nearestHospital = hospitals[0];
+                                    triageData.patientLocation = location;
+                                    triageData.eta = this.geocoding.calculateETA(hospitals[0].distance, priority);
+
+                                    this.logger.log(`🏥 Hôpital: ${hospitals[0].name} (${hospitals[0].distance}km, ETA: ${triageData.eta}min)`);
+                                }
+
+                                if (fireStations.length > 0) {
+                                    triageData.nearestFireStation = fireStations[0];
+                                    this.logger.log(`🚒 Pompiers: ${fireStations[0].name} (${fireStations[0].distance}km)`);
+                                }
+                            } else {
+                                this.logger.warn(`⚠️ Geocoding échoué pour: "${context.collectedInfo.adresse}"`);
+                            }
+                        } catch (geoError) {
+                            this.logger.warn(`⚠️ Geocoding error: ${geoError.message}`);
+                        }
+                    }
                 } catch (error) {
                     this.logger.warn(`⚠️  Failed to generate triage summary: ${error.message}`);
                 }
             } else {
-                this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 4+)`);
+                this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 2+)`);
             }
 
             return { response: armResponse, triageData };

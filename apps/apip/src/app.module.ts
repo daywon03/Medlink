@@ -6,6 +6,7 @@ import { ArmGateway } from './gateways/arm.gateway';
 import { TrackingGateway } from './gateways/tracking.gateway';
 import { SupabaseService } from './supabase/supabase.service';
 import { RideService } from './services/ride.service';
+import { GeocodingService } from './services/geocoding.service';
 import { ElevenLabsRealtimeService } from './elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
 import { ElizaArmService } from './eliza/eliza-arm.service';
 import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
@@ -24,6 +25,7 @@ import { CallsController } from './controllers/calls.controller';
     // Services
     SupabaseService,
     RideService,
+    GeocodingService,
     ElevenLabsRealtimeService,  // ElevenLabs STT (Scribe Realtime v2)
     ElevenLabsTTSService,       // ElevenLabs TTS
     ElizaArmService,

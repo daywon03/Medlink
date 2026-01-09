@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import { Server } from 'socket.io';
 import { WebSocket } from 'ws';
 import { SupabaseService } from '../supabase/supabase.service';
 import { ElevenLabsRealtimeService } from '../elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
@@ -13,8 +15,12 @@ interface ClientContext {
 }
 
 @Injectable()
+@WebSocketGateway(3002, { cors: true }) // 🆕 Gateway pour broadcasts
 export class TranscriptionGateway {
   private readonly logger = new Logger(TranscriptionGateway.name);
+
+  @WebSocketServer() // 🆕 Server pour broadcast vers ARM
+  server: Server;
 
   constructor(
     private readonly supa: SupabaseService,
@@ -65,6 +71,12 @@ export class TranscriptionGateway {
           await this.elevenLabsRealtime.connectForCall(
             ctx.callId!,
             async (transcribedText: string) => {
+              // ✅ FIX: Ignorer transcripts vides ou trop courts
+              if (!transcribedText || transcribedText.trim().length < 3) {
+                this.logger.warn(`⏭️ Transcript ignoré (trop court): "${transcribedText}"`);
+                return;
+              }
+
               // Callback when transcript is committed
               this.logger.log(`👤 Patient: "${transcribedText}"`);
 
@@ -89,6 +101,17 @@ export class TranscriptionGateway {
                     armResult.triageData
                   );
                   this.logger.log(`📋 Triage sauvegardé: ${armResult.triageData.priority} - "${armResult.triageData.summary.substring(0, 50)}..."`);
+
+                  // 🆕 PUSH temps réel vers dashboard ARM
+                  this.server.emit('call:update', {
+                    callId: ctx.callId,
+                    summary: armResult.triageData.summary,
+                    priority: armResult.triageData.priority,
+                    isPartial: armResult.triageData.isPartial,
+                    updatedAt: new Date().toISOString()
+                  });
+
+                  this.logger.log(`📡 Broadcast update ARM: ${ctx.callId}`);
                 } catch (error) {
                   this.logger.error(`Failed to save triage report: ${error.message}`);
                 }
