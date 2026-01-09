@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import fetch from 'node-fetch';
 
 @Injectable()
 export class ElevenLabsTTSService {
@@ -63,10 +62,10 @@ export class ElevenLabsTTSService {
                 throw new Error(`TTS error ${response.status}: ${errorText}`);
             }
 
-            const audioBuffer = await response.buffer();
-            this.logger.log(`✅ Audio généré: ${audioBuffer.length} bytes`);
+            const audioBuffer = await response.arrayBuffer();
+            this.logger.log(`✅ Audio généré: ${audioBuffer.byteLength} bytes`);
 
-            return audioBuffer;
+            return Buffer.from(audioBuffer);
         } catch (error) {
             this.logger.error(`❌ Erreur TTS: ${error.message}`);
             throw error;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import io, { Socket } from "socket.io-client";
 
@@ -19,35 +19,9 @@ type Incident = {
 };
 
 const MapPanel = dynamic(() => import("./ui/MapPanel"), { ssr: false });
+const TriageList = dynamic(() => import("./TriageList"), { ssr: false });
 
 const PAGE_SIZE = 8;
-
-const MOCK: Incident[] = [
-  {
-    id: "INC-1024",
-    createdAt: "2025-12-26 12:20",
-    status: "nouveau",
-    priority: 2,
-    title: "Douleur thoracique + nausées",
-    locationLabel: "Paris 15e",
-    lat: 48.8414,
-    lng: 2.3007,
-    symptoms: ["douleur poitrine", "nausées", "sueurs"],
-    notes: "Patient anxieux, douleur depuis 20 min.",
-  },
-  {
-    id: "INC-1025",
-    createdAt: "2025-12-26 12:23",
-    status: "en_cours",
-    priority: 3,
-    title: "Fièvre + vertiges",
-    locationLabel: "Issy-les-Moulineaux",
-    lat: 48.8245,
-    lng: 2.2736,
-    symptoms: ["fièvre", "vertiges", "fatigue"],
-    notes: "Température 39°C, état général altéré.",
-  },
-];
 
 function statusLabel(s: IncidentStatus) {
   if (s === "nouveau") return "Nouveau";
@@ -103,9 +77,10 @@ export default function ArmPage() {
   const [socket, setSocket] = useState<Socket | null>(null);
 
   // data
-  const [incidents, setIncidents] = useState<Incident[]>(MOCK);
-  const [selectedId, setSelectedId] = useState<string>(MOCK[0]?.id ?? "");
-  const selected = incidents.find((i) => i.id === selectedId) ?? incidents[0];
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const incidentsRef = useRef<Incident[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("");
+  const selected = incidents.find((i: Incident) => i.id === selectedId) ?? incidents[0];
 
   // filters
   const [q, setQ] = useState("");
@@ -122,38 +97,99 @@ export default function ArmPage() {
   // form states
   const [assignTeam, setAssignTeam] = useState("AMB-12");
   const [editNotes, setEditNotes] = useState(selected?.notes ?? "");
-  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");
-
+  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");  const [trackingUrl, setTrackingUrl] = useState("");
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
+    incidentsRef.current = incidents;
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Socket init */
-useEffect(() => {
-  let s: Socket | null = null;
-  let cancelled = false;
+  useEffect(() => {
+    let s: Socket | null = null;
+    let cancelled = false;
 
-  (async () => {
-    await fetch("/api/socket");
-    if (cancelled) return;
+    (async () => {
+      if (cancelled) return;
 
-    s = io({ path: "/api/socketio" });
+      // Connect directly to NestJS backend
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3002";
+      s = io(wsUrl);
 
-    s.on("connect", () => console.log("socket connected", s?.id));
-    s.on("arm:connected", (p) => console.log("arm:connected", p));
-    s.on("incident:update", (evt) => console.log("incident:update", evt));
+      s.on("connect", () => console.log("socket connected", s?.id));
+      s.on("arm:connected", (p) => console.log("arm:connected", p));
+      s.on("incident:update", (evt) => console.log("incident:update", evt));
 
-    setSocket(s);
-  })();
+      // Respond to tracking clients requesting current state
+      s.on("tracking:request", (evt: any) => {
+        try {
+          if (!evt?.token) return;
+          const found = incidentsRef.current.find((i: Incident) => i.id === evt.token);
+          if (!found) return;
 
-  return () => {
-    cancelled = true;
-    if (s) {
-      s.removeAllListeners();
-      s.disconnect(); // <= IMPORTANT: on ne "return" pas le résultat
+          // extract last assigned team from notes if present
+          const notes = found.notes ?? "";
+          const m = notes.match(/Assigné:\s*([A-Z0-9-]+)/i);
+          const team = m ? m[1] : "AMB-?";
+
+          s?.emit("tracking:assign", {
+            token: found.id,
+            status: "assigned",
+            ambulance: { label: team },
+            incident: { label: found.locationLabel, lat: found.lat, lng: found.lng },
+            destinationHospital: {
+              name: "Hôpital Européen Georges-Pompidou",
+              address: "20 Rue Leblanc, 75015 Paris",
+              lat: 48.8414,
+              lng: 2.2790,
+            },
+            ambulancePos: { lat: found.lat, lng: found.lng, updatedAt: new Date().toISOString() },
+            etaMinutes: 7,
+            expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
+          });
+        } catch (e) {
+          console.error("tracking:request handler error", e);
+        }
+      });
+
+      setSocket(s);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (s) {
+        s.removeAllListeners();
+        s.disconnect();
+      }
+    };
+  }, []);
+
+  /** Fetch real calls from API */
+  useEffect(() => {
+    async function fetchCalls() {
+      try {
+        const res = await fetch('http://localhost:3001/api/calls');
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          setIncidents(json.data);
+          incidentsRef.current = json.data;
+          // Auto-select first if none selected
+          if (!selectedId && json.data.length > 0) {
+            setSelectedId(json.data[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch calls:', err);
+        // Keep empty incidents on error
+      }
     }
-  };
-}, []);
+
+    fetchCalls();
+    // Auto-refresh every 10 seconds
+    const interval = setInterval(fetchCalls, 10000);
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
 
 
   /** Filter + paginate */
@@ -189,7 +225,36 @@ useEffect(() => {
         i.id === selected.id ? { ...i, status: "en_cours", notes: (i.notes ?? "") + `\nAssigné: ${assignTeam}` } : i
       )
     );
+
+    // Emit to ARM backend
     emitAction("assign_ambulance", { incidentId: selected.id, team: assignTeam });
+
+    // Generate tracking URL
+    const trackingToken = selected.id;
+    const url = `/t/${trackingToken}`;
+    setTrackingUrl(url);
+
+    // Emit to tracking page (real-time update)
+    socket?.emit("tracking:assign", {
+      token: trackingToken,
+      status: "assigned",
+      ambulance: { label: assignTeam },
+      incident: {
+        label: selected.locationLabel,
+        lat: selected.lat,
+        lng: selected.lng
+      },
+      destinationHospital: {
+        name: "Hôpital Européen Georges-Pompidou",
+        address: "20 Rue Leblanc, 75015 Paris",
+        lat: 48.8414,
+        lng: 2.2790,
+      },
+      ambulancePos: { lat: selected.lat, lng: selected.lng, updatedAt: new Date().toISOString() },
+      etaMinutes: 7,
+      expiresAt: new Date(Date.now() + 30 * 60000).toISOString(), // 30 min
+    });
+
     setOpenAssign(false);
   }
 
@@ -445,7 +510,34 @@ useEffect(() => {
           <button className="btn btnBlue" onClick={onAssign}>
             Confirmer l’assignation
           </button>
-        </div>
+          {trackingUrl && (
+            <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: "0.75rem", background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)" }}>
+              <div style={{ fontSize: "0.875rem", color: "#94a3b8", marginBottom: "0.5rem" }}>Lien de suivi créé :</div>
+              <a
+                href={trackingUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: "#10b981",
+                  textDecoration: "none",
+                  fontWeight: "600",
+                  wordBreak: "break-all"
+                }}
+              >
+                {window.location.origin}{trackingUrl}
+              </a>
+              <button
+                className="btn btnGhost"
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.origin + trackingUrl);
+                  alert("Lien copié !");
+                }}
+                style={{ marginTop: "0.75rem", width: "100%" }}
+              >
+                📋 Copier le lien
+              </button>
+            </div>
+          )}        </div>
       </Modal>
 
       <Modal open={openEdit} title="Corriger les informations" onClose={() => setOpenEdit(false)}>
@@ -467,6 +559,11 @@ useEffect(() => {
           </button>
         </div>
       </Modal>
+
+      {/* Section Triage IA - Ajouté */}
+      <section style={{ marginTop: '32px', borderTop: '2px solid rgba(255,255,255,0.1)', paddingTop: '24px' }}>
+        <TriageList />
+      </section>
 
       {/* CSS global intégré */}
       <style jsx global>{`

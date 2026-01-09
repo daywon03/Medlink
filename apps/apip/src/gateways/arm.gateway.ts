@@ -1,0 +1,91 @@
+import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
+import { Socket } from 'socket.io';
+import { BaseGateway } from './base.gateway';
+import type { ArmActionPayload } from '../types';
+
+/**
+ * ARM Gateway - Handles WebSocket events for the ARM console (/arm)
+ * Manages incidents, ambulance assignments, and operator actions
+ */
+@WebSocketGateway({
+  cors: {
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true
+  },
+})
+export class ArmGateway extends BaseGateway {
+  constructor() {
+    super('ArmGateway');
+  }
+
+  protected onConnection(client: Socket): void {
+    super.onConnection(client);
+    // Send ARM-specific connection event
+    this.emitToClient(client, 'arm:connected', {
+      ok: true,
+      at: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * Handle ARM operator actions (assign ambulance, edit incident, notify citizen)
+   */
+  @SubscribeMessage('arm:action')
+  handleArmAction(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: ArmActionPayload,
+  ): void {
+    try {
+      this.logger.log(`📋 ARM action received: ${payload.type}`);
+
+      // Broadcast the incident update to all connected clients (including other ARM operators)
+      this.broadcast('incident:update', {
+        type: 'action',
+        payload,
+        at: new Date().toISOString(),
+      });
+
+      // Acknowledge back to the sender
+      this.emitToClient(client, 'arm:action:ack', {
+        success: true,
+        type: payload.type,
+      });
+    } catch (error) {
+      this.handleError(error as Error, 'handleArmAction');
+      this.emitToClient(client, 'arm:action:error', {
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  /**
+   * Handle tracking request from ARM console
+   * This is called when ARM wants to get current state for a specific incident
+   */
+  @SubscribeMessage('tracking:request')
+  handleTrackingRequest(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() payload: { token: string },
+  ): void {
+    try {
+      this.logger.log(`🔍 Tracking request for token: ${payload.token}`);
+
+      // Emit back to the requesting client
+      // The actual data will be provided by TrackingGateway
+      this.emitToClient(client, 'tracking:request:received', {
+        token: payload.token,
+      });
+    } catch (error) {
+      this.handleError(error as Error, 'handleTrackingRequest');
+    }
+  }
+
+  /**
+   * Broadcast tracking assignment to all clients
+   * Called when an ambulance is assigned from ARM console
+   */
+  broadcastTrackingAssignment(data: any): void {
+    this.logger.log(`📡 Broadcasting tracking assignment: ${data.token}`);
+    this.broadcast('tracking:assign', data);
+  }
+}

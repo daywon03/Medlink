@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WebSocket } from 'ws';
 import { SupabaseService } from '../supabase/supabase.service';
-import { ElevenLabsRealtimeService } from '../elevenlabs/elevenlabs-realtime.service';
-import { ElevenLabsTTSService } from '../elevenlabs/elevenlabs-tts.service';
+import { ElevenLabsRealtimeService } from '../elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
+import { ElevenLabsTTSService } from '../elevenlabs/elevenlabs-tts.service';  // ElevenLabs TTS
 import { ElizaArmService } from '../eliza/eliza-arm.service';
 
 interface ClientContext {
@@ -18,7 +18,7 @@ export class TranscriptionGateway {
 
   constructor(
     private readonly supa: SupabaseService,
-    private readonly elevenLabsRealtime: ElevenLabsRealtimeService,
+    private readonly elevenLabsRealtime: ElevenLabsRealtimeService, // ElevenLabs STT
     private readonly tts: ElevenLabsTTSService,
     private readonly elizaArm: ElizaArmService,
   ) { }
@@ -63,7 +63,7 @@ export class TranscriptionGateway {
 
           // Connect ElevenLabs Realtime WebSocket for this call
           await this.elevenLabsRealtime.connectForCall(
-            ctx.callId!,  // Non-null assertion - callId was just assigned above
+            ctx.callId!,
             async (transcribedText: string) => {
               // Callback when transcript is committed
               this.logger.log(`👤 Patient: "${transcribedText}"`);
@@ -74,18 +74,31 @@ export class TranscriptionGateway {
               // Send to frontend
               this.send(client, 'patient_speech', { text: transcribedText });
 
-              // Get ARM response
-              const armResponse = await this.elizaArm.getArmResponse(
+              // Get ARM response (now returns object with response + triageData)
+              const armResult = await this.elizaArm.getArmResponse(
                 transcribedText,
                 ctx.callId!,
                 ctx.citizenId!,
               );
 
+              // Sauvegarder résumé + classification si disponibles
+              if (armResult.triageData) {
+                try {
+                  await this.supa.createOrUpdateTriageReport(
+                    ctx.callId!,
+                    armResult.triageData
+                  );
+                  this.logger.log(`📋 Triage sauvegardé: ${armResult.triageData.priority} - "${armResult.triageData.summary.substring(0, 50)}..."`);
+                } catch (error) {
+                  this.logger.error(`Failed to save triage report: ${error.message}`);
+                }
+              }
+
               // TTS + send to frontend
-              this.logger.log(`🔊 Agent parle: "${armResponse}"`);
-              const audioBuffer = await this.tts.textToSpeech(armResponse);
+              this.logger.log(`🔊 Agent parle: "${armResult.response}"`);
+              const audioBuffer = await this.tts.textToSpeech(armResult.response);
               const audioBase64 = audioBuffer.toString('base64');
-              this.send(client, 'agent_speech', { text: armResponse, audio: audioBase64 });
+              this.send(client, 'agent_speech', { text: armResult.response, audio: audioBase64 });
             },
           );
 
@@ -145,16 +158,25 @@ export class TranscriptionGateway {
 
                   this.send(client, 'patient_speech', { text: transcribedText });
 
-                  const armResponse = await this.elizaArm.getArmResponse(
+                  const armResult = await this.elizaArm.getArmResponse(
                     transcribedText,
                     ctx.callId!,
                     ctx.citizenId!,
                   );
 
-                  this.logger.log(`🔊 Agent parle: "${armResponse}"`);
-                  const audioBuffer = await this.tts.textToSpeech(armResponse);
+                  // Sauvegarder triage si disponible
+                  if (armResult.triageData) {
+                    try {
+                      await this.supa.createOrUpdateTriageReport(ctx.callId!, armResult.triageData);
+                    } catch (error) {
+                      this.logger.error(`Failed to save triage: ${error.message}`);
+                    }
+                  }
+
+                  this.logger.log(`🔊 Agent parle: "${armResult.response}"`);
+                  const audioBuffer = await this.tts.textToSpeech(armResult.response);
                   const audioBase64 = audioBuffer.toString('base64');
-                  this.send(client, 'agent_speech', { text: armResponse, audio: audioBase64 });
+                  this.send(client, 'agent_speech', { text: armResult.response, audio: audioBase64 });
                 },
               );
 

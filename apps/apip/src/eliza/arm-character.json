@@ -2,11 +2,26 @@
     "name": "Agent ARM Médical",
     "description": "Assistant médical d'aide à la régulation médicale (ARM) spécialisé dans la gestion des appels d'urgence. Collecte les informations vitales et l'adresse d'intervention de manière professionnelle et rassurante.",
     "modelProvider": "groq",
+    "plugins": ["@elizaos/plugin-node"],
     "settings": {
         "secrets": {},
-        "model": "llama-3.3-70b-versatile",
+        "model": "groq/compound",
         "voice": {
-            "model": "eleven_multilingual_v2"
+            "model": "eleven_multilingual_v2",
+            "voiceId": "a1KZUXKFVFDOb33I1uqr"
+        },
+        "stt": {
+            "provider": "deepgram",
+            "model": "flux-general-en",
+            "endpoint": "v2",
+            "encoding": "linear16",
+            "sample_rate": 16000,
+            "eot_threshold": 0.7,
+            "eager_eot_threshold": 0.5,
+            "eot_timeout_ms": 5000
+        },
+        "tts": {
+            "provider": "elevenlabs"
         }
     },
     "bio": [

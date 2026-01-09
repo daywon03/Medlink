@@ -39,8 +39,9 @@ export class ElevenLabsRealtimeService {
         }
 
         return new Promise((resolve, reject) => {
-            // Utilisons commit manuel au lieu de VAD pour plus de contrôle
-            const url = `${this.wsUrl}?model_id=scribe_v2_realtime&language_code=fr&audio_format=pcm_16000&commit_strategy=manual`;
+            // Utilisons VAD (Voice Activity Detection) pour détection automatique
+            // vad_threshold=0.3 : Plus sensible pour capter parole faible/accent
+            const url = `${this.wsUrl}?model_id=scribe_v2_realtime&language_code=fr&audio_format=pcm_16000&commit_strategy=vad&vad_threshold=0.3`;
 
             const ws = new WebSocket(url, {
                 headers: {
@@ -74,11 +75,15 @@ export class ElevenLabsRealtimeService {
 
                         case 'committed_transcript':
                             // Final transcript for this segment
+                            this.logger.log(`📨 Full message: ${JSON.stringify(message)}`); // DEBUG
+
                             if (message.text && message.text.trim()) {
                                 this.logger.log(`✅ Committed: "${message.text}"`);
                                 onTranscript(message.text);
                             } else {
                                 this.logger.warn('⚠️  Empty committed transcript!');
+                                this.logger.warn(`   Message keys: ${Object.keys(message).join(', ')}`);
+                                this.logger.warn(`   Text value: "${message.text}" (type: ${typeof message.text})`);
                             }
                             break;
 
@@ -148,27 +153,15 @@ export class ElevenLabsRealtimeService {
             // Convert buffer to base64
             const audioBase64 = pcmBuffer.toString('base64');
 
-            // Send audio chunk message SANS commit
+            // Send audio chunk message (VAD will auto-commit when speech ends)
             const audioMessage = {
                 message_type: 'input_audio_chunk',
                 audio_base_64: audioBase64,
-                commit: false,
                 sample_rate: 16000,
             };
 
             ws.send(JSON.stringify(audioMessage));
-            this.logger.log(`🎵 Sent ${pcmBuffer.length} bytes PCM to ElevenLabs`);
-
-            // Immédiatement après, envoyer un commit pour forcer la transcription
-            const commitMessage = {
-                message_type: 'input_audio_chunk',
-                audio_base_64: '',
-                commit: true,
-                sample_rate: 16000,
-            };
-
-            ws.send(JSON.stringify(commitMessage));
-            this.logger.log(`✅ Committed audio chunk for transcription`);
+            this.logger.log(`🎵 Sent ${pcmBuffer.length} bytes PCM to ElevenLabs (VAD auto-commit)`);
         } catch (error) {
             this.logger.error(`Failed to send audio: ${error.message}`);
             throw error;
