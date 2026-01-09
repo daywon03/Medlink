@@ -19,3 +19,18 @@ export async function register(email: string, password: string) {
   if (error) throw error;
   return data;
 }
+
+export async function logout() {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+}
+
+export async function getProfileRole(userId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+  if (error) throw error;
+  return data?.role ?? null;
+}

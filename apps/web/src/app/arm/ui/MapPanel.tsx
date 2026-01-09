@@ -1,10 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import type { Map as LeafletMap } from "leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createInfoWindowContent, createPinIcon, loadGoogleMaps } from "../../../../lib/googleMaps";
 
 type Props = {
   lat: number;
@@ -12,90 +9,103 @@ type Props = {
   label?: string;
 };
 
-function FixMapSize({ mapRef }: { mapRef: React.MutableRefObject<LeafletMap | null> }) {
-  const map = useMap();
+export default function MapPanel({ lat, lng, label = "Incident" }: Props) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
+  const mapElRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const infoRef = useRef<any>(null);
+  const [error, setError] = useState<string>("");
+
+  const center = useMemo(() => ({ lat, lng }), [lat, lng]);
 
   useEffect(() => {
-    mapRef.current = map;
+    let cancelled = false;
 
-    // IMPORTANT: si le layout vient juste d’être rendu (cards, modals, etc.)
-    // Leaflet calcule parfois une taille 0 -> on invalide après un tick
-    const t = window.setTimeout(() => {
-      try {
-        map.invalidateSize();
-      } catch {}
-    }, 50);
+    if (!apiKey) {
+      setError("Cle Google Maps manquante.");
+      return () => {};
+    }
+
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !mapElRef.current) return;
+
+        const maps = window.google.maps;
+
+        if (!mapRef.current) {
+          mapRef.current = new maps.Map(mapElRef.current, {
+            center,
+            zoom: 13,
+            mapTypeControl: false,
+            fullscreenControl: false,
+            streetViewControl: false,
+            clickableIcons: false,
+          });
+        }
+
+        if (!markerRef.current) {
+          markerRef.current = new maps.Marker({
+            position: center,
+            map: mapRef.current,
+            title: label,
+            icon: createPinIcon(maps, "#ef4444"),
+          });
+
+          infoRef.current = new maps.InfoWindow({
+            content: createInfoWindowContent(label),
+          });
+
+          markerRef.current.addListener("click", () => {
+            infoRef.current.open({ anchor: markerRef.current, map: mapRef.current });
+          });
+        }
+
+        markerRef.current.setTitle(label);
+        if (infoRef.current) {
+          infoRef.current.setContent(createInfoWindowContent(label));
+        }
+
+        mapRef.current.setCenter(center);
+        markerRef.current.setPosition(center);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message ?? "Impossible de charger Google Maps.");
+      });
 
     return () => {
-      window.clearTimeout(t);
-      mapRef.current = null;
+      cancelled = true;
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        markerRef.current = null;
+      }
+      if (infoRef.current) {
+        infoRef.current.close();
+        infoRef.current = null;
+      }
     };
-  }, [map, mapRef]);
-
-  return null;
-}
-
-function Recenter({ lat, lng }: { lat: number; lng: number }) {
-  const map = useMap();
-  useEffect(() => {
-    // Guard: évite les erreurs quand démonté
-    try {
-      map.setView([lat, lng], map.getZoom(), { animate: false });
-    } catch {}
-  }, [lat, lng, map]);
-  return null;
-}
-
-export default function MapPanel({ lat, lng, label = "Incident" }: Props) {
-  const mapRef = useRef<LeafletMap | null>(null);
-
-  // Fix icônes (sinon marker invisible / erreurs)
-  useEffect(() => {
-    const iconRetinaUrl =
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png";
-    const iconUrl =
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
-    const shadowUrl =
-      "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png";
-
-    const DefaultIcon = L.icon({
-      iconRetinaUrl,
-      iconUrl,
-      shadowUrl,
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-      popupAnchor: [1, -34],
-      shadowSize: [41, 41],
-    });
-
-    // @ts-ignore
-    L.Marker.prototype.options.icon = DefaultIcon;
-  }, []);
-
-  const center = useMemo(() => [lat, lng] as [number, number], [lat, lng]);
+  }, [apiKey, center, label]);
 
   return (
     <div style={{ height: 360, width: "100%" }}>
-      <MapContainer
-        center={center}
-        zoom={13}
-        scrollWheelZoom
-        style={{ height: "100%", width: "100%" }}
-      >
-        <FixMapSize mapRef={mapRef} />
-        <Recenter lat={lat} lng={lng} />
-
-        <TileLayer
-          // OSM standard (OK)
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          // attribution obligatoire
-          attribution="&copy; OpenStreetMap contributors"
-        />
-
-        <Marker position={center}>
-          <Popup>{label}</Popup>
-        </Marker>
-      </MapContainer>
+      {error ? (
+        <div
+          style={{
+            height: "100%",
+            width: "100%",
+            display: "grid",
+            placeItems: "center",
+            color: "rgba(255,255,255,0.7)",
+            borderRadius: "16px",
+            background: "rgba(0,0,0,0.2)",
+            border: "1px solid rgba(255,255,255,0.12)",
+          }}
+        >
+          {error}
+        </div>
+      ) : (
+        <div ref={mapElRef} style={{ height: "100%", width: "100%" }} />
+      )}
     </div>
   );
 }
