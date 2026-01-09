@@ -7,6 +7,7 @@ import { ElevenLabsRealtimeService } from '../elevenlabs/elevenlabs-realtime.ser
 import { ElevenLabsTTSService } from '../elevenlabs/elevenlabs-tts.service';  // ElevenLabs TTS
 import { ElizaArmService } from '../eliza/eliza-arm.service';
 import { RedisService } from '../services/redis.service';
+import { GeocodingService } from '../services/geocoding.service';
 
 interface ClientContext {
   callId: string | null;
@@ -30,6 +31,7 @@ export class TranscriptionGateway {
     private readonly tts: ElevenLabsTTSService,
     private readonly elizaArm: ElizaArmService,
     private readonly redis: RedisService, // Redis Pub/Sub
+    private readonly geocoding: GeocodingService, // Geocoding & Hospital Search
   ) { }
 
   handleConnection(client: WebSocket) {
@@ -147,7 +149,65 @@ export class TranscriptionGateway {
 
             if (extractedAddress) {
               await this.supa.updateCallAddress(ctx.callId, extractedAddress);
-              this.logger.log(`📍 Adresse: ${extractedAddress}`);
+              this.logger.log(`📍 Adresse extraite: ${extractedAddress}`);
+
+              // 🆕 GEOCODE ADDRESS + FIND HOSPITALS
+              try {
+                this.logger.log(`🌍 Geocoding adresse...`);
+                const location = await this.geocoding.geocodeAddress(extractedAddress);
+
+                if (location) {
+                  this.logger.log(`✅ Coordonnées: ${location.lat}, ${location.lng}`);
+
+                  // Trouver hôpitaux les plus proches
+                  const hospitals = await this.geocoding.findNearestHospitals(location, 15); // 15km radius
+
+                  if (hospitals.length > 0) {
+                    const nearestHospital = hospitals[0];
+                    const etaMinutes = Math.ceil(nearestHospital.distance / 0.5); // ~30km/h en ville
+
+                    this.logger.log(`🏥 Hôpital le plus proche: ${nearestHospital.name} (${nearestHospital.distance.toFixed(1)}km, ETA: ${etaMinutes}min)`);
+
+                    // Récupérer le dernier triage report pour update
+                    const { data: triageReport } = await this.supa['supabase']
+                      .from('triage_reports')
+                      .select('*')
+                      .eq('call_id', ctx.callId)
+                      .single();
+
+                    if (triageReport) {
+                      // Update avec geocoding data
+                      await this.supa.createOrUpdateTriageReport(ctx.callId, {
+                        priority: triageReport.priority_classification,
+                        summary: triageReport.ai_explanation,
+                        confidence: triageReport.classification_confidence,
+                        nearestHospital: {
+                          name: nearestHospital.name,
+                          address: nearestHospital.address,
+                          lat: nearestHospital.lat,
+                          lng: nearestHospital.lng,
+                          distance: nearestHospital.distance
+                        },
+                        patientLocation: {
+                          lat: location.lat,
+                          lng: location.lng,
+                          address: location.address
+                        },
+                        eta: etaMinutes
+                      });
+
+                      this.logger.log(`✅ Triage report updated avec geocoding data`);
+                    }
+                  } else {
+                    this.logger.warn(`⚠️ Aucun hôpital trouvé dans un rayon de 15km`);
+                  }
+                } else {
+                  this.logger.warn(`⚠️ Geocoding échoué pour: ${extractedAddress}`);
+                }
+              } catch (geoError) {
+                this.logger.error(`Geocoding error: ${geoError.message}`);
+                // Continue même si geocoding échoue
+              }
             }
 
             await this.supa.finishCall(ctx.callId);

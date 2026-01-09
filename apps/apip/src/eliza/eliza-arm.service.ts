@@ -95,6 +95,7 @@ export class ElizaArmService implements OnModuleInit {
             symptoms: string[];
             vitalEmergency: boolean;
             isPartial?: boolean; // 🆕 Flag résumé partiel
+            agentAdvice?: string; // 🆕 Conseils détaillés de l'agent
         };
     }> {
         try {
@@ -193,7 +194,8 @@ export class ElizaArmService implements OnModuleInit {
                         confidence: messageCount >= 4 ? 0.85 : 0.5, // ✅ Confiance progressive
                         symptoms: this.extractSymptoms(context),
                         vitalEmergency: context.collectedInfo.urgence_vitale || false,
-                        isPartial: messageCount < 4 // 🆕 Flag résumé partiel
+                        isPartial: messageCount < 4, // 🆕 Flag résumé partiel
+                        agentAdvice: armResponse // 🆕 Sauvegarder la réponse complète de l'agent (conseils inclus)
                     };
 
                     this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);

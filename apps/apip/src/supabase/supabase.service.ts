@@ -117,6 +117,8 @@ export class SupabaseService {
     nearestFireStation?: any;
     patientLocation?: any;
     eta?: number;
+    // 🆕 Agent advice (conseils détaillés)
+    agentAdvice?: string;  // Réponse complète de l'agent avec conseils
   }) {
     // Vérifier si un report existe déjà
     const { data: existing } = await this.supabase
@@ -139,6 +141,8 @@ export class SupabaseService {
           fire_station_data: triageData.nearestFireStation ? JSON.stringify(triageData.nearestFireStation) : null,
           patient_location: triageData.patientLocation ? JSON.stringify(triageData.patientLocation) : null,
           estimated_arrival_minutes: triageData.eta || null,
+          // 🆕 Sauvegarder conseils agent
+          data_json_synthese: triageData.agentAdvice ? JSON.stringify({ advice: triageData.agentAdvice }) : null,
           updated_at: new Date().toISOString()
         })
         .eq('call_id', call_id)
@@ -167,7 +171,9 @@ export class SupabaseService {
           nearest_hospital_data: triageData.nearestHospital ? JSON.stringify(triageData.nearestHospital) : null,
           fire_station_data: triageData.nearestFireStation ? JSON.stringify(triageData.nearestFireStation) : null,
           patient_location: triageData.patientLocation ? JSON.stringify(triageData.patientLocation) : null,
-          estimated_arrival_minutes: triageData.eta || null
+          estimated_arrival_minutes: triageData.eta || null,
+          // 🆕 Sauvegarder conseils agent
+          data_json_synthese: triageData.agentAdvice ? JSON.stringify({ advice: triageData.agentAdvice }) : null
         }])
         .select()
         .single();
