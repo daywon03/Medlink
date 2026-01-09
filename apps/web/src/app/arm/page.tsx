@@ -10,6 +10,8 @@ type IncidentStatus = "nouveau" | "en_cours" | "clos";
 type Incident = {
   id: string;
   createdAt: string;
+  createdAtRaw?: string;
+  updatedAtRaw?: string;
   status: IncidentStatus;
   priority: 1 | 2 | 3 | 4 | 5;
   title: string;
@@ -80,9 +82,18 @@ export default function ArmPage() {
 
   // data
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [closedIncidents, setClosedIncidents] = useState<Incident[]>([]);
+  const [closedLoading, setClosedLoading] = useState(false);
   const incidentsRef = useRef<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const selected = incidents.find((i: Incident) => i.id === selectedId) ?? incidents[0];
+  const allIncidents = useMemo(() => {
+    const map = new Map<string, Incident>();
+    incidents.forEach((i) => map.set(i.id, i));
+    closedIncidents.forEach((i) => map.set(i.id, i));
+    return Array.from(map.values());
+  }, [incidents, closedIncidents]);
+
+  const selected = allIncidents.find((i: Incident) => i.id === selectedId) ?? allIncidents[0];
 
   // filters
   const [q, setQ] = useState("");
@@ -226,18 +237,73 @@ export default function ArmPage() {
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function fetchClosedIncidents(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setClosedLoading(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/incidents/closed');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setClosedIncidents(json.data);
+        return json.data as Incident[];
+      }
+    } catch (err) {
+      console.error('Failed to fetch closed incidents:', err);
+    } finally {
+      if (!opts?.silent) setClosedLoading(false);
+    }
+    setClosedIncidents([]);
+    return [];
+  }
+
+  useEffect(() => {
+    fetchClosedIncidents({ silent: true });
+    const interval = setInterval(() => fetchClosedIncidents({ silent: true }), 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!openHistory) return;
+    fetchClosedIncidents();
+    const interval = setInterval(fetchClosedIncidents, 10000);
+    return () => clearInterval(interval);
+  }, [openHistory]);
+
 
 
   /** Filter + paginate */
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return incidents.filter((i) => {
+    return allIncidents.filter((i) => {
       const okStatus = status === "tous" ? true : i.status === status;
       const hay = `${i.id} ${i.title} ${i.locationLabel} ${i.symptoms.join(" ")} ${i.notes ?? ""}`.toLowerCase();
       const okQ = qq ? hay.includes(qq) : true;
       return okStatus && okQ;
     });
-  }, [incidents, q, status]);
+  }, [allIncidents, q, status]);
+
+  const slaMinutes = useMemo(() => {
+    const samples = closedIncidents
+      .map((i) => {
+        const start = i.createdAtRaw ?? i.createdAt;
+        const end = i.updatedAtRaw ?? i.createdAtRaw ?? i.createdAt;
+        const startMs = Date.parse(start);
+        const endMs = Date.parse(end);
+        if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return null;
+        return (endMs - startMs) / 60000;
+      })
+      .filter((v): v is number => v !== null);
+
+    if (samples.length === 0) return null;
+    const avg = samples.reduce((sum, v) => sum + v, 0) / samples.length;
+    return Math.max(1, Math.round(avg));
+  }, [closedIncidents]);
+
+  const totalCount = useMemo(() => {
+    const ids = new Set<string>();
+    incidents.forEach((i) => ids.add(i.id));
+    closedIncidents.forEach((i) => ids.add(i.id));
+    return ids.size;
+  }, [incidents, closedIncidents]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = useMemo(() => {
@@ -338,7 +404,7 @@ export default function ArmPage() {
   }
 
   async function downloadClosedIncidentsPdf() {
-    const closed = incidents.filter((i) => i.status === "clos");
+    const closed = await fetchClosedIncidents();
     if (closed.length === 0) {
       alert("Aucun incident clos à exporter.");
       return;
@@ -375,11 +441,18 @@ export default function ArmPage() {
     doc.setTextColor(0);
     y += 72;
 
-    const colWidths = [80, 160, 110, 60, 90];
+    const colWidths = [70, 210, 120, 55, 85];
     const headers = ["ID", "Titre", "Lieu", "Priorité", "Heure"];
 
     const drawRow = (row: string[], isHeader = false) => {
-      const rowHeight = 18;
+      const lineHeight = isHeader ? 12 : 11;
+      const cellLines = row.map((cell, idx) => {
+        const maxWidth = colWidths[idx] - 6;
+        return doc.splitTextToSize(cell, maxWidth);
+      });
+      const maxLines = Math.max(...cellLines.map((lines) => lines.length));
+      const rowHeight = Math.max(lineHeight + 6, maxLines * lineHeight + 4);
+
       if (y + rowHeight > pageHeight - margin) {
         doc.addPage();
         y = margin;
@@ -388,10 +461,8 @@ export default function ArmPage() {
       doc.setFontSize(isHeader ? 10 : 9);
       doc.setTextColor(isHeader ? 70 : 40);
       let x = margin;
-      row.forEach((cell, idx) => {
-        const maxWidth = colWidths[idx] - 6;
-        const text = doc.splitTextToSize(cell, maxWidth);
-        doc.text(text, x + 3, y + 12);
+      cellLines.forEach((lines, idx) => {
+        doc.text(lines, x + 3, y + lineHeight);
         x += colWidths[idx];
       });
 
@@ -404,9 +475,10 @@ export default function ArmPage() {
     drawRow(headers, true);
 
     closed.forEach((i) => {
+      const shortId = i.id.length > 12 ? `${i.id.slice(0, 8)}…${i.id.slice(-4)}` : i.id;
       drawRow(
         [
-          i.id,
+          shortId,
           i.title,
           i.locationLabel,
           `P${i.priority}`,
@@ -421,12 +493,12 @@ export default function ArmPage() {
 
   const kNew = incidents.filter((i) => i.status === "nouveau").length;
   const kProg = incidents.filter((i) => i.status === "en_cours").length;
-  const kClosed = incidents.filter((i) => i.status === "clos").length;
+  const kClosed = closedIncidents.length;
 
   return (
     <MedlinkLayout
       title="Centre d’opérations"
-      subtitle={`${filtered.length} incidents • ${status === "tous" ? "Tous statuts" : statusLabel(status)}`}
+      subtitle={`${totalCount} incidents • ${status === "tous" ? "Tous statuts" : statusLabel(status)}`}
       requireAuth
       actions={
         <>
@@ -486,7 +558,7 @@ export default function ArmPage() {
         </div>
         <div className="kpiCard">
           <div className="kpiLabel">SLA (démo)</div>
-          <div className="kpiValue">7 min</div>
+          <div className="kpiValue">{slaMinutes === null ? "—" : `${slaMinutes} min`}</div>
           <div className="kpiHint">Aujourd’hui</div>
         </div>
       </section>
@@ -503,9 +575,12 @@ export default function ArmPage() {
                 className="btn btnGhost"
                 onClick={() => {
                   const id = `INC-${Math.floor(1000 + Math.random() * 9000)}`;
+                  const nowIso = new Date().toISOString();
                   const newIncident: Incident = {
                     id,
-                    createdAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+                    createdAt: nowIso.slice(0, 16).replace("T", " "),
+                    createdAtRaw: nowIso,
+                    updatedAtRaw: nowIso,
                     status: "nouveau",
                     priority: 3,
                     title: "Nouveau signalement (démo)",
@@ -575,6 +650,12 @@ export default function ArmPage() {
                 <button className="btn btnGhost" onClick={() => setPage(1)}>
                   Début
                 </button>
+                <button className="btn btnGhost" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                  Précédent
+                </button>
+                <button className="btn btnGhost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                  Suivant
+                </button>
                 <button className="btn btnGhost" onClick={() => setPage(totalPages)}>
                   Fin
                 </button>
@@ -641,6 +722,7 @@ export default function ArmPage() {
                   key={`${selected?.id}-${selected?.lat}-${selected?.lng}`}
                   lat={selected?.lat ?? 48.8566}
                   lng={selected?.lng ?? 2.3522}
+                  address={selected?.locationLabel}
                   label={selected?.locationLabel ?? "Paris"}
                 />
               </div>
@@ -732,7 +814,7 @@ export default function ArmPage() {
       </Modal>
 
       <Modal open={openHistory} title="Historique des incidents clos" onClose={() => setOpenHistory(false)}>
-        <div className="tableWrap">
+        <div className="tableWrap tableWrapScroll">
           <table className="table">
             <thead>
               <tr>
@@ -744,7 +826,7 @@ export default function ArmPage() {
               </tr>
             </thead>
             <tbody>
-              {incidents.filter((i) => i.status === "clos").map((i) => (
+              {closedIncidents.map((i) => (
                 <tr key={i.id}>
                   <td className="mono strong">{i.id}</td>
                   <td>
@@ -758,10 +840,10 @@ export default function ArmPage() {
                   <td className="muted">{i.createdAt}</td>
                 </tr>
               ))}
-              {incidents.filter((i) => i.status === "clos").length === 0 && (
+              {closedIncidents.length === 0 && (
                 <tr>
                   <td colSpan={5} className="empty">
-                    Aucun incident clos pour le moment.
+                    {closedLoading ? "Chargement des incidents clos..." : "Aucun incident clos pour le moment."}
                   </td>
                 </tr>
               )}

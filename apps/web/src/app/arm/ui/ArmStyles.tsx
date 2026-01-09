@@ -450,6 +450,19 @@ export default function ArmStyles() {
           overflow: hidden;
           border: 1px solid #d6e2f4;
         }
+        .tableWrapScroll {
+          max-height: min(60vh, 520px);
+          overflow: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        .tableWrapScroll .table {
+          min-width: 520px;
+        }
+        .tableWrapScroll thead th {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+        }
         .table {
           width: 100%;
           border-collapse: collapse;
@@ -656,6 +669,9 @@ export default function ArmStyles() {
           }
           .trackMapWrap {
             height: 360px;
+          }
+          .tableWrapScroll {
+            max-height: 70vh;
           }
         }
         @media (max-width: 700px) {

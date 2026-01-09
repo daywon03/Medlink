@@ -6,10 +6,11 @@ import { createInfoWindowContent, createPinIcon, loadGoogleMaps } from "../../..
 type Props = {
   lat: number;
   lng: number;
+  address?: string;
   label?: string;
 };
 
-export default function MapPanel({ lat, lng, label = "Incident" }: Props) {
+export default function MapPanel({ lat, lng, address, label = "Incident" }: Props) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
   const mapElRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -17,7 +18,9 @@ export default function MapPanel({ lat, lng, label = "Incident" }: Props) {
   const infoRef = useRef<any>(null);
   const [error, setError] = useState<string>("");
 
-  const center = useMemo(() => ({ lat, lng }), [lat, lng]);
+  const [resolvedCenter, setResolvedCenter] = useState(() => ({ lat, lng }));
+  const center = useMemo(() => resolvedCenter, [resolvedCenter]);
+  const addressText = useMemo(() => address?.trim() ?? "", [address]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +88,34 @@ export default function MapPanel({ lat, lng, label = "Incident" }: Props) {
       }
     };
   }, [apiKey, center, label]);
+
+  useEffect(() => {
+    setResolvedCenter({ lat, lng });
+  }, [lat, lng]);
+
+  useEffect(() => {
+    if (!addressText || !apiKey) return () => {};
+    let cancelled = false;
+
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled) return;
+        const maps = window.google.maps;
+        const geocoder = new maps.Geocoder();
+        geocoder.geocode({ address: addressText }, (results: any, status: string) => {
+          if (cancelled) return;
+          if (status === "OK" && results && results[0]) {
+            const loc = results[0].geometry.location;
+            setResolvedCenter({ lat: loc.lat(), lng: loc.lng() });
+          }
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [addressText, apiKey]);
 
   return (
     <div style={{ height: 360, width: "100%" }}>
