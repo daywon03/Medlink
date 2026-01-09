@@ -1,39 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import L, { type LatLngTuple } from "leaflet";
-import "leaflet/dist/leaflet.css";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createInfoWindowContent, createPinIcon, loadGoogleMaps } from "../../../../../lib/googleMaps";
 
 type Pt = { lat: number; lng: number; label: string };
 type Pos = { lat: number; lng: number };
-
-// Create custom emoji icons
-function createEmojiIcon(emoji: string, label: string) {
-  return L.divIcon({
-    html: `
-      <div style="
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        background: rgba(59, 130, 246, 0.95);
-        border: 2px solid #fff;
-        border-radius: 50%;
-        font-size: 24px;
-        cursor: pointer;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-        transition: transform 0.2s ease;
-      ">
-        ${emoji}
-      </div>
-    `,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    popupAnchor: [0, -20],
-    className: "emoji-icon",
-  });
-}
 
 export default function TrackMap({
   ambulance,
@@ -44,58 +15,116 @@ export default function TrackMap({
   incident: Pt;
   hospital: Pt;
 }) {
-  const mapRef = useRef<L.Map | null>(null);
-  const ambMarkerRef = useRef<L.Marker | null>(null);
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
+  const mapElRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const ambMarkerRef = useRef<any>(null);
+  const incidentMarkerRef = useRef<any>(null);
+  const hospitalMarkerRef = useRef<any>(null);
+  const directionsServiceRef = useRef<any>(null);
+  const directionsRendererRef = useRef<any>(null);
+  const [error, setError] = useState<string>("");
 
-  const center = useMemo(() => [ambulance.lat, ambulance.lng] as LatLngTuple, [ambulance]);
+  const center = useMemo(() => ({ lat: ambulance.lat, lng: ambulance.lng }), [ambulance.lat, ambulance.lng]);
 
   useEffect(() => {
-    if (mapRef.current) return;
+    let cancelled = false;
 
-    const map = L.map("track-map", {
-      zoomControl: false,
-      attributionControl: true,
-    }).setView(center, 13);
+    if (!apiKey) {
+      setError("Cle Google Maps manquante.");
+      return () => {};
+    }
 
-    mapRef.current = map;
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !mapElRef.current) return;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-    }).addTo(map);
+        const maps = window.google.maps;
 
-    // Custom emoji icons
-    const ambulanceIcon = createEmojiIcon("🚑", "Ambulance");
-    const hospitalIcon = createEmojiIcon("🏥", "Hôpital");
-    const incidentIcon = createEmojiIcon("📍", "Lieu de l'incident");
+        if (!mapRef.current) {
+          mapRef.current = new maps.Map(mapElRef.current, {
+            center,
+            zoom: 13,
+            mapTypeControl: false,
+            fullscreenControl: false,
+            streetViewControl: false,
+            clickableIcons: false,
+          });
+        }
 
-    // markers
-    const incidentMarker = L.marker([incident.lat, incident.lng], { icon: incidentIcon })
-      .addTo(map)
-      .bindPopup(`<div style="text-align: center;"><strong>📍 ${incident.label}</strong></div>`);
+        if (!incidentMarkerRef.current) {
+          incidentMarkerRef.current = new maps.Marker({
+            position: { lat: incident.lat, lng: incident.lng },
+            map: mapRef.current,
+            title: incident.label,
+            icon: createPinIcon(maps, "#ef4444"),
+          });
+          const info = new maps.InfoWindow({ content: createInfoWindowContent(`📍 ${incident.label}`) });
+          incidentMarkerRef.current.addListener("click", () => info.open({ anchor: incidentMarkerRef.current, map: mapRef.current }));
+        }
 
-    const hospitalMarker = L.marker([hospital.lat, hospital.lng], { icon: hospitalIcon })
-      .addTo(map)
-      .bindPopup(`<div style="text-align: center;"><strong>🏥 ${hospital.label}</strong></div>`);
+        if (!hospitalMarkerRef.current) {
+          hospitalMarkerRef.current = new maps.Marker({
+            position: { lat: hospital.lat, lng: hospital.lng },
+            map: mapRef.current,
+            title: hospital.label,
+            icon: createPinIcon(maps, "#3b82f6"),
+          });
+          const info = new maps.InfoWindow({ content: createInfoWindowContent(`🏥 ${hospital.label}`) });
+          hospitalMarkerRef.current.addListener("click", () => info.open({ anchor: hospitalMarkerRef.current, map: mapRef.current }));
+        }
 
-    const ambMarker = L.marker([ambulance.lat, ambulance.lng], { icon: ambulanceIcon })
-      .addTo(map)
-      .bindPopup(`<div style="text-align: center;"><strong>🚑 Ambulance</strong></div>`);
-    ambMarkerRef.current = ambMarker;
+        if (!ambMarkerRef.current) {
+          ambMarkerRef.current = new maps.Marker({
+            position: { lat: ambulance.lat, lng: ambulance.lng },
+            map: mapRef.current,
+            title: "Ambulance",
+            icon: createPinIcon(maps, "#22c55e"),
+          });
+        }
 
-    // fit bounds
-    const bounds = L.latLngBounds([
-      [incident.lat, incident.lng],
-      [hospital.lat, hospital.lng],
-      [ambulance.lat, ambulance.lng],
-    ]);
-    map.fitBounds(bounds.pad(0.25));
+        if (!directionsServiceRef.current) {
+          directionsServiceRef.current = new maps.DirectionsService();
+        }
+        if (!directionsRendererRef.current) {
+          directionsRendererRef.current = new maps.DirectionsRenderer({
+            suppressMarkers: true,
+            preserveViewport: false,
+            polylineOptions: {
+              strokeColor: "#1c4bb6",
+              strokeOpacity: 0.65,
+              strokeWeight: 4,
+            },
+          });
+          directionsRendererRef.current.setMap(mapRef.current);
+        }
 
-    // fix sizing after mount (Next layout)
-    setTimeout(() => map.invalidateSize(), 0);
+        const bounds = new maps.LatLngBounds();
+        bounds.extend(new maps.LatLng(incident.lat, incident.lng));
+        bounds.extend(new maps.LatLng(hospital.lat, hospital.lng));
+        bounds.extend(new maps.LatLng(ambulance.lat, ambulance.lng));
+        mapRef.current.fitBounds(bounds, 60);
+
+        directionsServiceRef.current.route(
+          {
+            origin: { lat: ambulance.lat, lng: ambulance.lng },
+            destination: { lat: hospital.lat, lng: hospital.lng },
+            waypoints: [{ location: { lat: incident.lat, lng: incident.lng }, stopover: false }],
+            travelMode: maps.TravelMode.DRIVING,
+          },
+          (result: any, status: string) => {
+            if (status === maps.DirectionsStatus.OK && directionsRendererRef.current) {
+              directionsRendererRef.current.setDirections(result);
+            }
+          }
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message ?? "Impossible de charger Google Maps.");
+      });
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -103,8 +132,51 @@ export default function TrackMap({
   // update ambulance marker position live
   useEffect(() => {
     if (!mapRef.current || !ambMarkerRef.current) return;
-    ambMarkerRef.current.setLatLng([ambulance.lat, ambulance.lng]);
+    ambMarkerRef.current.setPosition({ lat: ambulance.lat, lng: ambulance.lng });
   }, [ambulance.lat, ambulance.lng]);
 
-  return <div id="track-map" style={{ width: "100%", height: "100%" }} />;
+  useEffect(() => {
+    if (!mapRef.current || !incidentMarkerRef.current || !hospitalMarkerRef.current) return;
+    incidentMarkerRef.current.setPosition({ lat: incident.lat, lng: incident.lng });
+    hospitalMarkerRef.current.setPosition({ lat: hospital.lat, lng: hospital.lng });
+  }, [incident.lat, incident.lng, hospital.lat, hospital.lng]);
+
+  useEffect(() => {
+    if (!directionsServiceRef.current || !directionsRendererRef.current || !mapRef.current) return;
+    const maps = window.google.maps;
+    directionsServiceRef.current.route(
+      {
+        origin: { lat: ambulance.lat, lng: ambulance.lng },
+        destination: { lat: hospital.lat, lng: hospital.lng },
+        waypoints: [{ location: { lat: incident.lat, lng: incident.lng }, stopover: false }],
+        travelMode: maps.TravelMode.DRIVING,
+      },
+      (result: any, status: string) => {
+        if (status === maps.DirectionsStatus.OK && directionsRendererRef.current) {
+          directionsRendererRef.current.setDirections(result);
+        }
+      }
+    );
+  }, [ambulance.lat, ambulance.lng, incident.lat, incident.lng, hospital.lat, hospital.lng]);
+
+  if (error) {
+    return (
+      <div
+        style={{
+          height: "100%",
+          width: "100%",
+          display: "grid",
+          placeItems: "center",
+          color: "rgba(255,255,255,0.7)",
+          borderRadius: "16px",
+          background: "rgba(0,0,0,0.2)",
+          border: "1px solid rgba(255,255,255,0.12)",
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+
+  return <div ref={mapElRef} style={{ width: "100%", height: "100%" }} />;
 }
