@@ -12,11 +12,12 @@ import { ElizaArmService } from './eliza/eliza-arm.service';
 import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
 import { TriageController } from './controllers/triage.controller';
 import { CallsController } from './controllers/calls.controller';
+import { IncidentsController } from './controllers/incidents.controller';
 import { RedisService } from './services/redis.service';
 
 @Module({
   imports: [],
-  controllers: [AppController, TriageController, CallsController],
+  controllers: [AppController, TriageController, CallsController, IncidentsController],
   providers: [
     AppService,
     // WebSocket Gateways

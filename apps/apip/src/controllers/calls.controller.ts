@@ -18,6 +18,7 @@ export class CallsController {
           call_id,
           citizen_id,
           date_heure,
+          updated_at,
           location_input_text,
           status,
           triage_reports (
@@ -65,6 +66,8 @@ export class CallsController {
           return {
             id: call.call_id,
             createdAt: new Date(call.date_heure).toISOString().slice(0, 16).replace('T', ' '),
+            createdAtRaw: call.date_heure,
+            updatedAtRaw: call.updated_at,
             status: call.status || (hasTriage ? 'nouveau' : 'en_cours'), // ✅ "en_cours" si pas de triage
             priority,
             title: hasTriage
