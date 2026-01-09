@@ -28,7 +28,17 @@ export class ArmGateway extends BaseGateway {
       this.logger.log(`✅ Broadcasted to ARM dashboards: ${data.callId}`);
     });
 
-    this.logger.log('✅ ArmGateway subscribed to Redis arm:updates channel');
+    // 🆕 Subscribe to Redis arm:geolocation channel (async background search results)
+    this.redis.subscribe('arm:geolocation', (data: any) => {
+      this.logger.log(`📍 Geolocation received from Redis: ${data.callId}`);
+
+      // 📡 Broadcast geolocation update to ARM dashboards
+      this.broadcast('call:geolocation', data);
+
+      this.logger.log(`✅ Geolocation broadcasted: ${data.nearestHospital?.name || 'No hospital'}`);
+    });
+
+    this.logger.log('✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation channels');
   }
 
   protected onConnection(client: Socket): void {

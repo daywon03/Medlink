@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { triageCharacter, type Character } from './characters';
 import { collectInfoAction } from './actions';
 import { GeocodingService } from '../services/geocoding.service';
+import { SupabaseService } from '../supabase/supabase.service';
+import { RedisService } from '../services/redis.service';
 
 interface Message {
     role: 'system' | 'user' | 'assistant';
@@ -10,7 +12,8 @@ interface Message {
 
 interface ConversationContext {
     messages: Message[];
-    collectedInfo: any; // Données collectées par collectInfoAction
+    collectedInfo: any;
+    _geocoded?: boolean; // Flag pour éviter recherches multiples
 }
 
 @Injectable()
@@ -19,7 +22,11 @@ export class ElizaArmService implements OnModuleInit {
     private conversationContexts: Map<string, ConversationContext> = new Map();
     private character: Character;
 
-    constructor(private readonly geocoding: GeocodingService) {}
+    constructor(
+        private readonly geocoding: GeocodingService,
+        private readonly supabase: SupabaseService,
+        private readonly redis: RedisService,
+    ) {}
 
     async onModuleInit() {
         try {
@@ -200,40 +207,10 @@ export class ElizaArmService implements OnModuleInit {
 
                     this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);
 
-                    // 🆕 GEOCODING: Si adresse collectée, chercher hôpital + pompiers
-                    if (context.collectedInfo.adresse) {
-                        try {
-                            this.logger.log(`🌍 Geocoding adresse: "${context.collectedInfo.adresse}"`);
-
-                            const location = await this.geocoding.geocodeAddress(context.collectedInfo.adresse);
-
-                            if (location) {
-                                this.logger.log(`📍 Coordonnées: ${location.lat}, ${location.lng}`);
-
-                                // Recherche parallèle hôpitaux + pompiers
-                                const [hospitals, fireStations] = await Promise.all([
-                                    this.geocoding.findNearestHospitals(location, 15),
-                                    this.geocoding.findNearestFireStations(location, 15)
-                                ]);
-
-                                if (hospitals.length > 0) {
-                                    triageData.nearestHospital = hospitals[0];
-                                    triageData.patientLocation = location;
-                                    triageData.eta = this.geocoding.calculateETA(hospitals[0].distance, priority);
-
-                                    this.logger.log(`🏥 Hôpital: ${hospitals[0].name} (${hospitals[0].distance}km, ETA: ${triageData.eta}min)`);
-                                }
-
-                                if (fireStations.length > 0) {
-                                    triageData.nearestFireStation = fireStations[0];
-                                    this.logger.log(`🚒 Pompiers: ${fireStations[0].name} (${fireStations[0].distance}km)`);
-                                }
-                            } else {
-                                this.logger.warn(`⚠️ Geocoding échoué pour: "${context.collectedInfo.adresse}"`);
-                            }
-                        } catch (geoError) {
-                            this.logger.warn(`⚠️ Geocoding error: ${geoError.message}`);
-                        }
+                    // 🆕 ASYNC GEOCODING: Lancer recherche en BACKGROUND (non-bloquant)
+                    if (context.collectedInfo.adresse && !context._geocoded) {
+                        context._geocoded = true; // Flag pour éviter recherches multiples
+                        this.searchNearestServicesAsync(callId, context.collectedInfo.adresse, priority);
                     }
                 } catch (error) {
                     this.logger.warn(`⚠️  Failed to generate triage summary: ${error.message}`);
@@ -371,5 +348,96 @@ Résumé concis:`;
     getCollectedInfo(callId: string): any {
         const context = this.conversationContexts.get(callId);
         return context?.collectedInfo || {};
+    }
+
+    // ==========================================================================
+    // 🆕 ASYNC BACKGROUND SEARCH - Google Maps API
+    // ==========================================================================
+
+    /**
+     * Lance recherche asynchrone en background (non-bloquant)
+     * Fire and forget - ne bloque pas la réponse agent
+     */
+    private searchNearestServicesAsync(callId: string, address: string, priority: string): void {
+        // Fire and forget - ne pas await
+        this.performGeoSearch(callId, address, priority).catch(err =>
+            this.logger.error(`❌ Background geolocation error: ${err.message}`)
+        );
+    }
+
+    /**
+     * Exécute la recherche géographique complète
+     */
+    private async performGeoSearch(callId: string, address: string, priority: string): Promise<void> {
+        this.logger.log(`🔍 [ASYNC] Starting background search for: "${address}"`);
+
+        try {
+            // 1. Geocoding: Adresse → Coordonnées
+            const location = await this.geocoding.geocodeAddress(address);
+            if (!location) {
+                this.logger.warn(`⚠️ [ASYNC] Geocoding failed for: "${address}"`);
+                return;
+            }
+
+            this.logger.log(`📍 [ASYNC] Geocoded: ${location.lat}, ${location.lng}`);
+
+            // 2. Recherches parallèles: Hôpitaux + Pompiers
+            const [hospitals, fireStations] = await Promise.all([
+                this.geocoding.findNearestHospitals(location, 15),
+                this.geocoding.findNearestFireStations(location, 15)
+            ]);
+
+            const nearestHospital = hospitals.length > 0 ? hospitals[0] : null;
+            const nearestFireStation = fireStations.length > 0 ? fireStations[0] : null;
+
+            // Calculer ETA
+            const eta = nearestHospital
+                ? this.geocoding.calculateETA(nearestHospital.distance, priority as any)
+                : null;
+
+            // Log résultats
+            if (nearestHospital) {
+                this.logger.log(`🏥 [ASYNC] Hospital found: ${nearestHospital.name} (${nearestHospital.distance}km, ETA: ${eta}min)`);
+            }
+            if (nearestFireStation) {
+                this.logger.log(`🚒 [ASYNC] Fire station found: ${nearestFireStation.name} (${nearestFireStation.distance}km)`);
+            }
+
+            // 3. Sauvegarder en base
+            try {
+                await this.supabase.createOrUpdateTriageReport(callId, {
+                    priority: priority as any,
+                    summary: '', // Ne pas écraser le résumé existant
+                    confidence: 0,
+                    nearestHospital,
+                    nearestFireStation,
+                    patientLocation: location,
+                    eta: eta || undefined
+                });
+                this.logger.log(`💾 [ASYNC] Geolocation saved to database`);
+            } catch (dbErr) {
+                this.logger.warn(`⚠️ [ASYNC] Failed to save geolocation: ${dbErr.message}`);
+            }
+
+            // 4. Broadcast vers Dashboard ARM via Redis
+            try {
+                await this.redis.publish('arm:geolocation', {
+                    callId,
+                    patientLocation: location,
+                    nearestHospital,
+                    nearestFireStation,
+                    eta,
+                    timestamp: new Date().toISOString()
+                });
+                this.logger.log(`📡 [ASYNC] Geolocation broadcasted to ARM dashboard`);
+            } catch (redisErr) {
+                this.logger.warn(`⚠️ [ASYNC] Failed to broadcast: ${redisErr.message}`);
+            }
+
+            this.logger.log(`✅ [ASYNC] Background search completed for call: ${callId}`);
+
+        } catch (error) {
+            this.logger.error(`❌ [ASYNC] Search failed: ${error.message}`);
+        }
     }
 }

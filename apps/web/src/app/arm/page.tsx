@@ -86,6 +86,7 @@ export default function ArmPage() {
   const [closedLoading, setClosedLoading] = useState(false);
   const incidentsRef = useRef<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
+  const selectedIdRef = useRef<string>("");
   const allIncidents = useMemo(() => {
     const map = new Map<string, Incident>();
     incidents.forEach((i) => map.set(i.id, i));
@@ -118,6 +119,7 @@ export default function ArmPage() {
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
     incidentsRef.current = incidents;
+    selectedIdRef.current = selectedId; // Sync ref with state
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Socket init */
@@ -178,12 +180,12 @@ export default function ArmPage() {
           if (index !== -1) {
             // Update appel existant
             const updated = [...prev];
-            const priorityMap: Record<string, number> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
+            const priorityMap: Record<string, 1 | 2 | 3 | 4 | 5> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
 
             updated[index] = {
               ...updated[index],
               title: data.summary?.substring(0, 60) || updated[index].title,
-              priority: data.priority ? priorityMap[data.priority] : updated[index].priority,
+              priority: data.priority ? (priorityMap[data.priority] ?? updated[index].priority) : updated[index].priority,
               notes: data.summary || updated[index].notes,
               status: data.isPartial ? 'en_cours' : 'nouveau'
             };
@@ -195,6 +197,36 @@ export default function ArmPage() {
             fetchCalls();
             return prev;
           }
+        });
+      });
+
+      // 🆕 Écouter mises à jour géolocalisation (recherche async background)
+      s.on('call:geolocation', (data: any) => {
+        console.log('📍 Geolocation update received:', data);
+
+        setIncidents(prev => {
+          const index = prev.findIndex(i => i.id === data.callId);
+
+          if (index !== -1) {
+            const updated = [...prev];
+
+            // Mettre à jour avec données geocoding
+            updated[index] = {
+              ...updated[index],
+              lat: data.patientLocation?.lat || updated[index].lat,
+              lng: data.patientLocation?.lng || updated[index].lng,
+              locationLabel: data.patientLocation?.address || updated[index].locationLabel,
+              // Sauvegarder infos supplémentaires dans notes si hôpital trouvé
+              notes: data.nearestHospital
+                ? `${updated[index].notes || ''}\n🏥 Hôpital: ${data.nearestHospital.name} (ETA: ${data.eta || '?'}min)`
+                : updated[index].notes
+            };
+
+            console.log(`✅ Updated incident ${data.callId} with geolocation`);
+            return updated;
+          }
+
+          return prev;
         });
       });
 
@@ -211,26 +243,27 @@ export default function ArmPage() {
   }, []);
 
   /** Fetch real calls from API */
-  useEffect(() => {
-    async function fetchCalls() {
-      try {
-        const res = await fetch('http://localhost:3001/api/calls');
-        const json = await res.json();
+  const fetchCalls = async () => {
+    try {
+      const res = await fetch('http://localhost:3001/api/calls');
+      const json = await res.json();
 
-        if (json.success && json.data) {
-          setIncidents(json.data);
-          incidentsRef.current = json.data;
-          // Auto-select first if none selected
-          if (!selectedId && json.data.length > 0) {
-            setSelectedId(json.data[0].id);
-          }
+      if (json.success && json.data) {
+        setIncidents(json.data);
+        incidentsRef.current = json.data;
+        // Auto-select first if none selected (use ref to avoid closure issue)
+        if (!selectedIdRef.current && json.data.length > 0) {
+          setSelectedId(json.data[0].id);
+          selectedIdRef.current = json.data[0].id;
         }
-      } catch (err) {
-        console.error('Failed to fetch calls:', err);
-        // Keep empty incidents on error
       }
+    } catch (err) {
+      console.error('Failed to fetch calls:', err);
+      // Keep empty incidents on error
     }
+  };
 
+  useEffect(() => {
     fetchCalls();
     // Auto-refresh every 10 seconds
     const interval = setInterval(fetchCalls, 10000);
