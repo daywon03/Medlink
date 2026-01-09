@@ -12,6 +12,7 @@ import { ElizaArmService } from './eliza/eliza-arm.service';
 import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
 import { TriageController } from './controllers/triage.controller';
 import { CallsController } from './controllers/calls.controller';
+import { RedisService } from './services/redis.service';
 
 @Module({
   imports: [],
@@ -29,6 +30,7 @@ import { CallsController } from './controllers/calls.controller';
     ElevenLabsRealtimeService,  // ElevenLabs STT (Scribe Realtime v2)
     ElevenLabsTTSService,       // ElevenLabs TTS
     ElizaArmService,
+    RedisService,               // Redis Pub/Sub
   ],
 })
 export class AppModule { }

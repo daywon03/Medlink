@@ -1,26 +1,83 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
-  // TODO: remplacer par DB
   if (!token || token.length < 10) {
-    return NextResponse.json({ error: "invalid" }, { status: 404 });
+    return NextResponse.json({ error: "invalid_token" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    token,
-    status: "en_route",
-    ambulance: { label: "AMB-12" },
-    destinationHospital: {
-      name: "Hôpital Européen Georges-Pompidou",
-      address: "20 Rue Leblanc, 75015 Paris",
-      lat: 48.8386,
-      lng: 2.2730,
-    },
-    incident: { label: "Paris 15e", lat: 48.8414, lng: 2.3007 },
-    ambulancePos: { lat: 48.834, lng: 2.287, updatedAt: new Date().toISOString() },
-    etaMinutes: 7,
-    expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-  });
+  try {
+    // Fetch call and triage data from database
+    const { data: call, error: callError } = await supabase
+      .from("calls")
+      .select(`
+        call_id,
+        created_at,
+        extracted_address,
+        triage_reports (
+          priority,
+          summary,
+          nearest_hospital_data,
+          estimated_arrival_minutes
+        )
+      `)
+      .eq("call_id", token)
+      .single();
+
+    if (callError || !call) {
+      // Fallback to mock data if not found in DB
+      return NextResponse.json({
+        token,
+        status: "en_route",
+        ambulance: { label: "AMB-12" },
+        destinationHospital: {
+          name: "Hôpital Européen Georges-Pompidou",
+          address: "20 Rue Leblanc, 75015 Paris",
+          lat: 48.8386,
+          lng: 2.2730,
+        },
+        incident: { label: "Paris 15e", lat: 48.8414, lng: 2.3007 },
+        ambulancePos: { lat: 48.834, lng: 2.287, updatedAt: new Date().toISOString() },
+        etaMinutes: 7,
+        expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    const triageReport = call.triage_reports?.[0];
+    const hospitalData = triageReport?.nearest_hospital_data;
+
+    return NextResponse.json({
+      token,
+      status: "en_route",
+      ambulance: { label: "AMB-12" }, // TODO: Add ambulance assignment table
+      destinationHospital: hospitalData || {
+        name: "Hôpital le plus proche",
+        address: "En cours de localisation",
+        lat: 48.8566,
+        lng: 2.3522
+      },
+      incident: {
+        label: call.extracted_address || "Localisation inconnue",
+        lat: 48.8566, // TODO: Geocode address
+        lng: 2.3522
+      },
+      ambulancePos: {
+        lat: 48.8566, // TODO: Real-time ambulance GPS
+        lng: 2.3522,
+        updatedAt: new Date().toISOString()
+      },
+      etaMinutes: triageReport?.estimated_arrival_minutes || 10,
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    });
+  } catch (error) {
+    console.error("Error fetching ride data:", error);
+    return NextResponse.json({ error: "internal_error" }, { status: 500 });
+  }
 }

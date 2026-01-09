@@ -14,8 +14,8 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`✅ API REST listening on http://localhost:${port}`);
 
-  // 3. Crée le serveur WebSocket sur port 3002
-  const wsPort = process.env.WEBSOCKET_PORT ?? 3002;
+  // 3. Crée le serveur WebSocket sur port 3003
+  const wsPort = process.env.WEBSOCKET_PORT ?? 3003;
   const wss = new Server({ port: Number(wsPort) });
 
   // Attend que le serveur soit réellement prêt avant d'afficher le message

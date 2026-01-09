@@ -2,6 +2,7 @@ import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from
 import { Socket } from 'socket.io';
 import { BaseGateway } from './base.gateway';
 import type { ArmActionPayload } from '../types';
+import { RedisService } from '../services/redis.service';
 
 /**
  * ARM Gateway - Handles WebSocket events for the ARM console (/arm)
@@ -14,8 +15,20 @@ import type { ArmActionPayload } from '../types';
   },
 })
 export class ArmGateway extends BaseGateway {
-  constructor() {
+  constructor(private readonly redis: RedisService) {
     super('ArmGateway');
+
+    // 👂 Subscribe to Redis arm:updates channel
+    this.redis.subscribe('arm:updates', (data: any) => {
+      this.logger.log(`📡 Received from Redis: ${data.callId}`);
+
+      // 📡 Broadcast to ALL ARM dashboard clients via Socket.IO
+      this.broadcast('call:update', data);
+
+      this.logger.log(`✅ Broadcasted to ARM dashboards: ${data.callId}`);
+    });
+
+    this.logger.log('✅ ArmGateway subscribed to Redis arm:updates channel');
   }
 
   protected onConnection(client: Socket): void {

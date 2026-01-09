@@ -6,6 +6,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { ElevenLabsRealtimeService } from '../elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
 import { ElevenLabsTTSService } from '../elevenlabs/elevenlabs-tts.service';  // ElevenLabs TTS
 import { ElizaArmService } from '../eliza/eliza-arm.service';
+import { RedisService } from '../services/redis.service';
 
 interface ClientContext {
   callId: string | null;
@@ -15,18 +16,20 @@ interface ClientContext {
 }
 
 @Injectable()
-@WebSocketGateway(3002, { cors: true }) // 🆕 Gateway pour broadcasts
+// ❌ Decorator removed - using manual ws server in main.ts instead
 export class TranscriptionGateway {
   private readonly logger = new Logger(TranscriptionGateway.name);
 
-  @WebSocketServer() // 🆕 Server pour broadcast vers ARM
-  server: Server;
+  // ❌ WebSocketServer removed - will use alternative broadcast method
+  // @WebSocketServer()
+  // server: Server;
 
   constructor(
     private readonly supa: SupabaseService,
     private readonly elevenLabsRealtime: ElevenLabsRealtimeService, // ElevenLabs STT
     private readonly tts: ElevenLabsTTSService,
     private readonly elizaArm: ElizaArmService,
+    private readonly redis: RedisService, // Redis Pub/Sub
   ) { }
 
   handleConnection(client: WebSocket) {
@@ -102,8 +105,8 @@ export class TranscriptionGateway {
                   );
                   this.logger.log(`📋 Triage sauvegardé: ${armResult.triageData.priority} - "${armResult.triageData.summary.substring(0, 50)}..."`);
 
-                  // 🆕 PUSH temps réel vers dashboard ARM
-                  this.server.emit('call:update', {
+                  // ✅ PUBLISH to Redis for ARM dashboard real-time updates
+                  await this.redis.publish('arm:updates', {
                     callId: ctx.callId,
                     summary: armResult.triageData.summary,
                     priority: armResult.triageData.priority,
@@ -111,7 +114,7 @@ export class TranscriptionGateway {
                     updatedAt: new Date().toISOString()
                   });
 
-                  this.logger.log(`📡 Broadcast update ARM: ${ctx.callId}`);
+                  this.logger.log(`📡 Published to Redis: arm:updates`);
                 } catch (error) {
                   this.logger.error(`Failed to save triage report: ${error.message}`);
                 }
