@@ -6,6 +6,26 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+function parseHospitalData(value: unknown) {
+  if (!value) return null;
+  const parsed = typeof value === "string" ? safeJsonParse(value) : value;
+  if (!parsed || typeof parsed !== "object") return null;
+  const hospital = parsed as { name?: string; address?: string; lat?: number; lng?: number };
+  if (!hospital.name) return null;
+  const lat = Number(hospital.lat);
+  const lng = Number(hospital.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return { ...hospital, lat, lng };
+}
+
+function safeJsonParse(value: string) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(_: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
@@ -51,7 +71,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ token:
     }
 
     const triageReport = call.triage_reports?.[0];
-    const hospitalData = triageReport?.nearest_hospital_data;
+    const hospitalData = parseHospitalData(triageReport?.nearest_hospital_data);
 
     return NextResponse.json({
       token,

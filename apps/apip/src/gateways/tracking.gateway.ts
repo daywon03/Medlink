@@ -195,13 +195,15 @@ export class TrackingGateway extends BaseGateway {
         .single();
 
       if (!error && data?.nearest_hospital_data) {
-        const hospital = data.nearest_hospital_data;
+        const rawHospital = data.nearest_hospital_data;
+        const hospital =
+          typeof rawHospital === 'string' ? JSON.parse(rawHospital) : rawHospital;
         this.logger.log(`🏥 Hôpital BDD: ${hospital.name}`);
         return {
           name: hospital.name,
           address: hospital.address,
-          lat: hospital.lat,
-          lng: hospital.lng
+          lat: Number(hospital.lat),
+          lng: Number(hospital.lng)
         };
       }
     } catch (error) {

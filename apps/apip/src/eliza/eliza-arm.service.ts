@@ -136,6 +136,22 @@ export class ElizaArmService implements OnModuleInit {
                 content: userMessage
             });
 
+            const pendingAddress = context.collectedInfo.adresse;
+            if (
+                pendingAddress &&
+                context.collectedInfo.adresse_confirmee !== true &&
+                context.collectedInfo.adresse_confirmation_sent !== true
+            ) {
+                const confirmation = `Je répète : ${pendingAddress}. C’est bien ça ?`;
+                context.collectedInfo.adresse_confirmation_sent = true;
+                context.messages.push({
+                    role: 'assistant',
+                    content: confirmation
+                });
+                const triageData = await this.buildTriageData(context, callId, confirmation);
+                return { response: confirmation, triageData };
+            }
+
             this.logger.log(`🌐 Calling Groq API (${this.character.name})`);
             this.logger.log(`   User: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
             this.logger.log(`   Collected info: ${JSON.stringify(context.collectedInfo)}`);
@@ -179,45 +195,7 @@ export class ElizaArmService implements OnModuleInit {
 ;
             this.logger.log(`   Response: "${armResponse.substring(0, 100)}${armResponse.length > 100 ? '...' : ''}"`);
 
-            // Générer résumé + classification après quelques échanges
-            // ✅ NOUVEAU : Dès 2 messages (1 échange) au lieu de 4
-            let triageData;
-            const messageCount = context.messages.filter(m => m.role !== 'system').length;
-
-            if (messageCount >= 2) { // ✅ Dès le premier échange
-                try {
-                    this.logger.log(`🔄 Génération résumé progressif (${messageCount} messages)...`);
-
-                    // ✅ Résumé progressif selon avancement
-                    const summary = messageCount >= 4
-                        ? await this.generateCallSummary(context)
-                        : await this.generateProgressiveSummary(context);
-
-                    const priority = this.detectPriority(context.collectedInfo);
-
-                    triageData = {
-                        priority,
-                        summary,
-                        confidence: messageCount >= 4 ? 0.85 : 0.5, // ✅ Confiance progressive
-                        symptoms: this.extractSymptoms(context),
-                        vitalEmergency: context.collectedInfo.urgence_vitale || false,
-                        isPartial: messageCount < 4, // 🆕 Flag résumé partiel
-                        agentAdvice: armResponse // 🆕 Sauvegarder la réponse complète de l'agent (conseils inclus)
-                    };
-
-                    this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);
-
-                    // 🆕 ASYNC GEOCODING: Lancer recherche en BACKGROUND (non-bloquant)
-                    if (context.collectedInfo.adresse && !context._geocoded) {
-                        context._geocoded = true; // Flag pour éviter recherches multiples
-                        this.searchNearestServicesAsync(callId, context.collectedInfo.adresse, priority);
-                    }
-                } catch (error) {
-                    this.logger.warn(`⚠️  Failed to generate triage summary: ${error.message}`);
-                }
-            } else {
-                this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 2+)`);
-            }
+            const triageData = await this.buildTriageData(context, callId, armResponse);
 
             return { response: armResponse, triageData };
         } catch (error) {
@@ -243,7 +221,60 @@ export class ElizaArmService implements OnModuleInit {
      * Check if message contains address
      */
     private containsAddress(message: string): boolean {
-        return /\d+\s+(rue|avenue|boulevard|place|chemin)/.test(message);
+        return /\b\d{1,4}\s?(?:bis|ter|quater)?\s+(?:rue|avenue|av\.?|boulevard|bd\.?|place|pl\.?|chemin|impasse|all[ée]e|route|rte\.?|quai|cours|passage|square|voie)\b/i.test(message);
+    }
+
+    private async buildTriageData(
+        context: ConversationContext,
+        callId: string,
+        armResponse: string,
+    ): Promise<{
+        priority: 'P0' | 'P1' | 'P2' | 'P3';
+        summary: string;
+        confidence: number;
+        symptoms: string[];
+        vitalEmergency: boolean;
+        isPartial?: boolean;
+        agentAdvice?: string;
+    } | undefined> {
+        // ✅ Dès le premier échange
+        const messageCount = context.messages.filter(m => m.role !== 'system').length;
+        if (messageCount < 2) {
+            this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 2+)`);
+            return undefined;
+        }
+
+        try {
+            this.logger.log(`🔄 Génération résumé progressif (${messageCount} messages)...`);
+
+            const summary = messageCount >= 4
+                ? await this.generateCallSummary(context)
+                : await this.generateProgressiveSummary(context);
+
+            const priority = this.detectPriority(context.collectedInfo);
+
+            const triageData = {
+                priority,
+                summary,
+                confidence: messageCount >= 4 ? 0.85 : 0.5,
+                symptoms: this.extractSymptoms(context),
+                vitalEmergency: context.collectedInfo.urgence_vitale || false,
+                isPartial: messageCount < 4,
+                agentAdvice: armResponse
+            };
+
+            this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);
+
+            if (context.collectedInfo.adresse && !context._geocoded) {
+                context._geocoded = true;
+                this.searchNearestServicesAsync(callId, context.collectedInfo.adresse, priority);
+            }
+
+            return triageData;
+        } catch (error) {
+            this.logger.warn(`⚠️  Failed to generate triage summary: ${error.message}`);
+            return undefined;
+        }
     }
 
     /**

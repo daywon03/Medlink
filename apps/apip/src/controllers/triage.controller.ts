@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 
 @Controller('api/triage')
@@ -102,6 +102,49 @@ export class TriageController {
         success: false,
         message: error.message
       };
+    }
+  }
+
+  /**
+   * POST /api/triage/:callId/hospital
+   * Met à jour l'hôpital de destination choisi par l'ARM
+   */
+  @Post(':callId/hospital')
+  async updateHospital(
+    @Param('callId') callId: string,
+    @Body() body: { hospital?: any; etaMinutes?: number },
+  ) {
+    try {
+      if (!body?.hospital) {
+        return { success: false, message: 'Hospital data is required' };
+      }
+
+      const { data: existing } = await this.supabase['supabase']
+        .from('triage_reports')
+        .select('report_id')
+        .eq('call_id', callId)
+        .single();
+
+      if (!existing) {
+        return { success: false, message: 'No triage report found for call' };
+      }
+
+      const { error } = await this.supabase['supabase']
+        .from('triage_reports')
+        .update({
+          nearest_hospital_data: JSON.stringify(body.hospital),
+          estimated_arrival_minutes: body.etaMinutes ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('call_id', callId);
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: (error as Error).message };
     }
   }
 }

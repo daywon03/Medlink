@@ -7,6 +7,16 @@ import MedlinkLayout from "../ui/MedlinkLayout";
 import { jsPDF } from "jspdf";
 
 type IncidentStatus = "nouveau" | "en_cours" | "clos";
+type Hospital = {
+  name: string;
+  address?: string;
+  lat: number;
+  lng: number;
+  distance?: number;
+  id?: string;
+  type?: string;
+};
+
 type Incident = {
   id: string;
   createdAt: string;
@@ -20,6 +30,8 @@ type Incident = {
   lng: number;
   symptoms: string[];
   notes?: string;
+  nearestHospital?: Hospital | null;
+  eta?: number | null;
 };
 
 const MapPanel = dynamic(() => import("./ui/MapPanel"), { ssr: false });
@@ -43,6 +55,37 @@ function priorityClass(p: number) {
   if (p <= 2) return "badge badgePrioHigh";
   if (p === 3) return "badge badgePrioMed";
   return "badge badgePrioLow";
+}
+
+function normalizeHospital(value: unknown): Hospital | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return normalizeHospital(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  const hospital = value as Partial<Hospital>;
+  if (!hospital.name) return null;
+  const lat = Number(hospital.lat);
+  const lng = Number(hospital.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+  return {
+    name: hospital.name,
+    address: hospital.address,
+    lat,
+    lng,
+    distance: hospital.distance,
+    id: hospital.id,
+    type: hospital.type,
+  };
+}
+
+function buildHospitalMessage(incident: Incident, hospital: Hospital | null) {
+  if (!hospital) return "";
+  const eta = incident.eta != null ? ` ETA estimée ${incident.eta} min.` : "";
+  return `Signalement arrivée patient depuis ${incident.locationLabel}. Destination: ${hospital.name}.${eta}`;
 }
 
 /** Modal simple (sans lib) */
@@ -95,6 +138,128 @@ export default function ArmPage() {
   }, [incidents, closedIncidents]);
 
   const selected = allIncidents.find((i: Incident) => i.id === selectedId) ?? allIncidents[0];
+  const selectedHospital = useMemo(
+    () => normalizeHospital(selected?.nearestHospital),
+    [selected?.nearestHospital]
+  );
+
+  function mapPriorityToLabel(priority: number): "P0" | "P1" | "P2" | "P3" {
+    if (priority <= 1) return "P0";
+    if (priority === 2) return "P1";
+    if (priority === 3) return "P2";
+    return "P3";
+  }
+
+  async function fetchNearestHospital(incident: Incident) {
+    setHospitalLoading(true);
+    setHospitalError("");
+    setHospitalResult(null);
+    setHospitalEta(null);
+    setHospitalSaved(false);
+    try {
+      const res = await fetch("http://localhost:3001/api/hospitals/nearest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: incident.locationLabel,
+          lat: incident.lat,
+          lng: incident.lng,
+          priority: mapPriorityToLabel(incident.priority),
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.message || "Aucun hôpital trouvé");
+      }
+      const hospital = normalizeHospital(json.nearestHospital);
+      if (!hospital) {
+        throw new Error("Données hôpital invalides");
+      }
+      setHospitalResult(hospital);
+      setHospitalEta(typeof json.eta === "number" ? json.eta : null);
+    } catch (err: any) {
+      setHospitalError(err?.message ?? "Erreur de recherche d’hôpital");
+    } finally {
+      setHospitalLoading(false);
+    }
+  }
+
+  function extractAssignedTeam(notes: string | undefined) {
+    if (!notes) return "AMB-?";
+    const match = notes.match(/Assigné:\s*([A-Z0-9-]+)/i);
+    return match ? match[1] : "AMB-?";
+  }
+
+  async function applyHospitalAssignment(incident: Incident, hospital: Hospital, eta: number | null) {
+    const noteSuffix = `\n🏥 Hôpital assigné: ${hospital.name}`;
+    setIncidents((prev) =>
+      prev.map((i) =>
+        i.id === incident.id
+          ? {
+              ...i,
+              nearestHospital: hospital,
+              eta: eta ?? i.eta ?? null,
+              notes: `${i.notes ?? ""}${noteSuffix}`,
+            }
+          : i
+      )
+    );
+    incidentsRef.current = incidentsRef.current.map((i) =>
+      i.id === incident.id
+        ? {
+            ...i,
+            nearestHospital: hospital,
+            eta: eta ?? i.eta ?? null,
+            notes: `${i.notes ?? ""}${noteSuffix}`,
+          }
+        : i
+    );
+
+    emitAction("notify_hospital", {
+      incidentId: incident.id,
+      hospital: {
+        name: hospital.name,
+        address: hospital.address,
+        lat: hospital.lat,
+        lng: hospital.lng,
+      },
+      message: buildHospitalMessage(incident, hospital),
+      etaMinutes: eta ?? undefined,
+    });
+
+    try {
+      const res = await fetch(`http://localhost:3001/api/triage/${incident.id}/hospital`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hospital,
+          etaMinutes: eta ?? undefined,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error("persist_failed");
+      }
+      setHospitalSaved(true);
+    } catch {
+      setHospitalSaved(false);
+    }
+
+    socket?.emit("tracking:assign", {
+      token: incident.id,
+      status: "assigned",
+      ambulance: { label: extractAssignedTeam(incident.notes) },
+      incident: { label: incident.locationLabel, lat: incident.lat, lng: incident.lng },
+      destinationHospital: {
+        name: hospital.name,
+        address: hospital.address ?? "",
+        lat: hospital.lat,
+        lng: hospital.lng,
+      },
+      ambulancePos: { lat: incident.lat, lng: incident.lng, updatedAt: new Date().toISOString() },
+      etaMinutes: eta ?? undefined,
+      expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
+    });
+  }
 
   // filters
   const [q, setQ] = useState("");
@@ -105,6 +270,7 @@ export default function ArmPage() {
 
   // modals
   const [openAssign, setOpenAssign] = useState(false);
+  const [openAssignHospital, setOpenAssignHospital] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
   const [openNotify, setOpenNotify] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
@@ -116,10 +282,19 @@ export default function ArmPage() {
   const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");
   const [trackingUrl, setTrackingUrl] = useState("");
   const [victimPhone, setVictimPhone] = useState("");
+  const [hospitalLoading, setHospitalLoading] = useState(false);
+  const [hospitalError, setHospitalError] = useState("");
+  const [hospitalResult, setHospitalResult] = useState<Hospital | null>(null);
+  const [hospitalEta, setHospitalEta] = useState<number | null>(null);
+  const [hospitalSaved, setHospitalSaved] = useState(false);
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
     incidentsRef.current = incidents;
     selectedIdRef.current = selectedId; // Sync ref with state
+    setHospitalError("");
+    setHospitalResult(null);
+    setHospitalEta(null);
+    setHospitalSaved(false);
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Socket init */
@@ -149,22 +324,31 @@ export default function ArmPage() {
           const notes = found.notes ?? "";
           const m = notes.match(/Assigné:\s*([A-Z0-9-]+)/i);
           const team = m ? m[1] : "AMB-?";
+          const hospital = normalizeHospital(found.nearestHospital);
+          const etaMinutes = typeof found.eta === "number" ? found.eta : undefined;
 
-          s?.emit("tracking:assign", {
+          const payload: Record<string, unknown> = {
             token: found.id,
             status: "assigned",
             ambulance: { label: team },
             incident: { label: found.locationLabel, lat: found.lat, lng: found.lng },
-            destinationHospital: {
-              name: "Hôpital Européen Georges-Pompidou",
-              address: "20 Rue Leblanc, 75015 Paris",
-              lat: 48.8414,
-              lng: 2.2790,
-            },
             ambulancePos: { lat: found.lat, lng: found.lng, updatedAt: new Date().toISOString() },
-            etaMinutes: 7,
             expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
-          });
+          };
+
+          if (hospital) {
+            payload.destinationHospital = {
+              name: hospital.name,
+              address: hospital.address ?? "",
+              lat: hospital.lat,
+              lng: hospital.lng,
+            };
+          }
+          if (etaMinutes != null) {
+            payload.etaMinutes = etaMinutes;
+          }
+
+          s?.emit("tracking:assign", payload);
         } catch (e) {
           console.error("tracking:request handler error", e);
         }
@@ -216,6 +400,8 @@ export default function ArmPage() {
               lat: data.patientLocation?.lat || updated[index].lat,
               lng: data.patientLocation?.lng || updated[index].lng,
               locationLabel: data.patientLocation?.address || updated[index].locationLabel,
+              nearestHospital: normalizeHospital(data.nearestHospital) ?? updated[index].nearestHospital,
+              eta: data.eta ?? updated[index].eta,
               // Sauvegarder infos supplémentaires dans notes si hôpital trouvé
               notes: data.nearestHospital
                 ? `${updated[index].notes || ''}\n🏥 Hôpital: ${data.nearestHospital.name} (ETA: ${data.eta || '?'}min)`
@@ -249,12 +435,17 @@ export default function ArmPage() {
       const json = await res.json();
 
       if (json.success && json.data) {
-        setIncidents(json.data);
-        incidentsRef.current = json.data;
+        const mapped = json.data.map((call: any) => ({
+          ...call,
+          nearestHospital: normalizeHospital(call.nearestHospital),
+          eta: typeof call.eta === "number" ? call.eta : call.eta != null ? Number(call.eta) : null,
+        }));
+        setIncidents(mapped);
+        incidentsRef.current = mapped;
         // Auto-select first if none selected (use ref to avoid closure issue)
-        if (!selectedIdRef.current && json.data.length > 0) {
-          setSelectedId(json.data[0].id);
-          selectedIdRef.current = json.data[0].id;
+        if (!selectedIdRef.current && mapped.length > 0) {
+          setSelectedId(mapped[0].id);
+          selectedIdRef.current = mapped[0].id;
         }
       }
     } catch (err) {
@@ -355,14 +546,40 @@ export default function ArmPage() {
 
   function onAssign() {
     if (!selected) return;
+    const hospital = normalizeHospital(selected.nearestHospital);
+    const etaMinutes = typeof selected.eta === "number" ? selected.eta : undefined;
+    const hospitalMessage = buildHospitalMessage(selected, hospital);
+
     setIncidents((prev) =>
       prev.map((i) =>
-        i.id === selected.id ? { ...i, status: "en_cours", notes: (i.notes ?? "") + `\nAssigné: ${assignTeam}` } : i
+        i.id === selected.id
+          ? {
+              ...i,
+              status: "en_cours",
+              notes:
+                (i.notes ?? "") +
+                `\nAssigné: ${assignTeam}` +
+                (hospital ? `\n🏥 Hôpital: ${hospital.name}` : ""),
+            }
+          : i
       )
     );
 
     // Emit to ARM backend
     emitAction("assign_ambulance", { incidentId: selected.id, team: assignTeam });
+    if (hospital && hospitalMessage) {
+      emitAction("notify_hospital", {
+        incidentId: selected.id,
+        hospital: {
+          name: hospital.name,
+          address: hospital.address,
+          lat: hospital.lat,
+          lng: hospital.lng,
+        },
+        message: hospitalMessage,
+        etaMinutes,
+      });
+    }
 
     // Generate tracking URL
     const trackingToken = selected.id;
@@ -370,7 +587,7 @@ export default function ArmPage() {
     setTrackingUrl(url);
 
     // Emit to tracking page (real-time update)
-    socket?.emit("tracking:assign", {
+    const trackingPayload: Record<string, unknown> = {
       token: trackingToken,
       status: "assigned",
       ambulance: { label: assignTeam },
@@ -379,16 +596,23 @@ export default function ArmPage() {
         lat: selected.lat,
         lng: selected.lng
       },
-      destinationHospital: {
-        name: "Hôpital Européen Georges-Pompidou",
-        address: "20 Rue Leblanc, 75015 Paris",
-        lat: 48.8414,
-        lng: 2.2790,
-      },
       ambulancePos: { lat: selected.lat, lng: selected.lng, updatedAt: new Date().toISOString() },
-      etaMinutes: 7,
       expiresAt: new Date(Date.now() + 30 * 60000).toISOString(), // 30 min
-    });
+    };
+
+    if (hospital) {
+      trackingPayload.destinationHospital = {
+        name: hospital.name,
+        address: hospital.address ?? "",
+        lat: hospital.lat,
+        lng: hospital.lng,
+      };
+    }
+    if (etaMinutes != null) {
+      trackingPayload.etaMinutes = etaMinutes;
+    }
+
+    socket?.emit("tracking:assign", trackingPayload);
 
     setOpenAssign(false);
   }
@@ -729,6 +953,19 @@ export default function ArmPage() {
                 <button className="btn btnBlue" onClick={() => setOpenAssign(true)} disabled={!selected}>
                   🚑 Assigner
                 </button>
+                <button className="btn btnGhost" onClick={() => {
+                  if (!selected) return;
+                  setOpenAssignHospital(true);
+                  const existingHospital = normalizeHospital(selected.nearestHospital);
+                  if (existingHospital) {
+                    setHospitalResult(existingHospital);
+                    setHospitalEta(typeof selected.eta === "number" ? selected.eta : null);
+                  } else {
+                    fetchNearestHospital(selected);
+                  }
+                }} disabled={!selected}>
+                  🏥 Assigner hôpital
+                </button>
                 <button className="btn btnGhost" onClick={() => setOpenEdit(true)} disabled={!selected}>
                   ✏️ Corriger
                 </button>
@@ -778,6 +1015,12 @@ export default function ArmPage() {
             onChange={(e) => setVictimPhone(e.target.value)}
             placeholder="ex: +33612345678"
           />
+          <div className="muted small">
+            Hôpital: {selectedHospital ? `${selectedHospital.name}${selectedHospital.address ? ` • ${selectedHospital.address}` : ""}` : "Recherche en cours"}
+          </div>
+          {selected?.eta != null && (
+            <div className="muted small">ETA estimée: {selected.eta} min</div>
+          )}
           <button className="btn btnBlue" onClick={onAssign}>
             Confirmer l’assignation
           </button>
@@ -823,7 +1066,59 @@ export default function ArmPage() {
                 📲 Envoyer par SMS
               </button>
             </div>
-          )}        </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal open={openAssignHospital} title="Assigner un hôpital" onClose={() => setOpenAssignHospital(false)}>
+        <div className="form">
+          <div className="muted">
+            Incident: <b className="strong">{selected?.id}</b>
+          </div>
+          <div className="muted small">Adresse: {selected?.locationLabel || "Adresse inconnue"}</div>
+
+          {hospitalLoading ? (
+            <div className="muted">Recherche du centre le plus proche…</div>
+          ) : hospitalError ? (
+            <div className="muted" style={{ color: "#f87171" }}>
+              {hospitalError}
+            </div>
+          ) : hospitalResult ? (
+            <div style={{ padding: "0.75rem", borderRadius: "0.75rem", background: "rgba(15, 23, 42, 0.4)", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
+              <div className="strong">{hospitalResult.name}</div>
+              {hospitalResult.address && <div className="muted small">{hospitalResult.address}</div>}
+              {hospitalEta != null && <div className="muted small">ETA estimée: {hospitalEta} min</div>}
+            </div>
+          ) : (
+            <div className="muted">Aucun résultat pour l’instant.</div>
+          )}
+          {hospitalSaved && (
+            <div className="muted small" style={{ color: "#10b981" }}>
+              ✅ Hôpital enregistré et envoyé au suivi patient.
+            </div>
+          )}
+
+          <div className="btnRow">
+            <button
+              className="btn btnGhost"
+              onClick={() => selected && fetchNearestHospital(selected)}
+              disabled={!selected || hospitalLoading}
+            >
+              🔄 Rechercher
+            </button>
+            <button
+              className="btn btnBlue"
+              onClick={async () => {
+                if (!selected || !hospitalResult) return;
+                await applyHospitalAssignment(selected, hospitalResult, hospitalEta);
+                setOpenAssignHospital(false);
+              }}
+              disabled={!selected || !hospitalResult}
+            >
+              ✅ Confirmer l’hôpital
+            </button>
+          </div>
+        </div>
       </Modal>
 
       <Modal open={openEdit} title="Corriger les informations" onClose={() => setOpenEdit(false)}>
