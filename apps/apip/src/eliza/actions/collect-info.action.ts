@@ -24,23 +24,23 @@ export interface CollectInfoAction {
  * Détection d'urgence vitale P0
  */
 const P0_KEYWORDS = [
-  'ne respire plus',
-  'pas de respiration',
-  'inconscient',
-  'ne bouge plus',
-  'ne répond plus',
-  'hémorragie massive',
-  'sang partout',
-  'arrêt cardiaque',
-  'bleu',
-  'cy anos',
-  'violet',
-  'convulsions',
+  "ne respire plus",
+  "pas de respiration",
+  "inconscient",
+  "ne bouge plus",
+  "ne répond plus",
+  "hémorragie massive",
+  "sang partout",
+  "arrêt cardiaque",
+  "bleu",
+  "cy anos",
+  "violet",
+  "convulsions",
 ];
 
 const detectP0 = (message: string): boolean => {
   const lowerMessage = message.toLowerCase();
-  return P0_KEYWORDS.some(keyword => lowerMessage.includes(keyword));
+  return P0_KEYWORDS.some((keyword) => lowerMessage.includes(keyword));
 };
 
 /**
@@ -48,7 +48,8 @@ const detectP0 = (message: string): boolean => {
  */
 const extractAddress = (message: string): string | null => {
   // Pattern pour détecter une adresse française
-  const addressPattern = /(\d+)\s+(rue|avenue|boulevard|place|chemin|impasse|allée)\s+([^\n,]+)/i;
+  const addressPattern =
+    /(\d+)\s+(rue|avenue|boulevard|place|chemin|impasse|allée)\s+([^\n,]+)/i;
   const match = message.match(addressPattern);
   return match ? match[0] : null;
 };
@@ -56,8 +57,11 @@ const extractAddress = (message: string): string | null => {
 /**
  * Extraction ville et code postal
  */
-const extractLocation = (message: string): { ville?: string; codePostal?: string } | null => {
-  const villePattern = /(Paris|Lyon|Marseille|Toulouse|Nice|Nantes|Montpellier|Strasbourg|Bordeaux|Lille)\s*(\d{1,2}(e|ème|er)?)?/i;
+const extractLocation = (
+  message: string,
+): { ville?: string; codePostal?: string } | null => {
+  const villePattern =
+    /(Paris|Lyon|Marseille|Toulouse|Nice|Nantes|Montpellier|Strasbourg|Bordeaux|Lille)\s*(\d{1,2}(e|ème|er)?)?/i;
   const codePostalPattern = /\b\d{5}\b/;
 
   const villeMatch = message.match(villePattern);
@@ -67,7 +71,7 @@ const extractLocation = (message: string): { ville?: string; codePostal?: string
 
   return {
     ville: villeMatch ? villeMatch[0] : undefined,
-    codePostal: codeMatch ? codeMatch[0] : undefined
+    codePostal: codeMatch ? codeMatch[0] : undefined,
   };
 };
 
@@ -75,8 +79,8 @@ const extractLocation = (message: string): { ville?: string; codePostal?: string
  * Action de collecte d'informations
  */
 export const collectInfoAction: CollectInfoAction = {
-  name: 'COLLECT_INFO',
-  description: 'Collecte et structure les informations critiques du triage',
+  name: "COLLECT_INFO",
+  description: "Collecte et structure les informations critiques du triage",
 
   validate: async (userMessage: string, context: any): Promise<boolean> => {
     // Toujours actif pendant le triage
@@ -86,14 +90,14 @@ export const collectInfoAction: CollectInfoAction = {
   handler: async (userMessage: string, context: any): Promise<ActionResult> => {
     const result: any = {
       success: true,
-      data: {}
+      data: {},
     };
 
     // Détection urgence vitale P0
     if (detectP0(userMessage)) {
       result.data.urgence_vitale = true;
-      result.data.classification_preliminaire = 'P0';
-      result.message = 'URGENCE VITALE DÉTECTÉE';
+      result.data.classification_preliminaire = "P0";
+      result.message = "URGENCE VITALE DÉTECTÉE";
     }
 
     // Extraction adresse
@@ -111,14 +115,14 @@ export const collectInfoAction: CollectInfoAction = {
 
     // Détection état de conscience (si mentionné)
     const conscienceKeywords = {
-      conscient: ['conscient', 'éveillé', 'parle', 'répond'],
-      inconscient: ['inconscient', 'ne répond pas', 'ne bouge plus', 'inerte'],
-      confus: ['confus', 'désorienté', 'bizarre']
+      conscient: ["conscient", "éveillé", "parle", "répond"],
+      inconscient: ["inconscient", "ne répond pas", "ne bouge plus", "inerte"],
+      confus: ["confus", "désorienté", "bizarre"],
     };
 
     const lowerMessage = userMessage.toLowerCase();
     for (const [etat, keywords] of Object.entries(conscienceKeywords)) {
-      if (keywords.some(kw => lowerMessage.includes(kw))) {
+      if (keywords.some((kw) => lowerMessage.includes(kw))) {
         result.data.etat_conscience = etat;
         break;
       }
@@ -139,25 +143,25 @@ export const collectInfoAction: CollectInfoAction = {
       input: "Mon père ne respire plus, 25 rue Victor Hugo Paris 15ème",
       output: {
         success: true,
-        message: 'URGENCE VITALE DÉTECTÉE',
+        message: "URGENCE VITALE DÉTECTÉE",
         data: {
           urgence_vitale: true,
-          classification_preliminaire: 'P0',
-          adresse: '25 rue Victor Hugo',
-          ville: 'Paris 15ème',
-          etat_conscience: 'inconscient'
-        }
-      }
+          classification_preliminaire: "P0",
+          adresse: "25 rue Victor Hugo",
+          ville: "Paris 15ème",
+          etat_conscience: "inconscient",
+        },
+      },
     },
     {
       input: "J'ai mal au pied, je suis au 10 avenue des Champs",
       output: {
         success: true,
         data: {
-          adresse: '10 avenue des Champs',
-          etat_conscience: 'conscient' // implicite (patient parle)
-        }
-      }
-    }
-  ]
+          adresse: "10 avenue des Champs",
+          etat_conscience: "conscient", // implicite (patient parle)
+        },
+      },
+    },
+  ],
 };

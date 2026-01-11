@@ -1,9 +1,9 @@
 // apps/api/src/main.ts
-import 'dotenv/config';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { Server } from 'ws';
-import { TranscriptionGateway } from './ws/transcription.gateway';
+import "dotenv/config";
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module";
+import { Server } from "ws";
+import { TranscriptionGateway } from "./ws/transcription.gateway";
 
 async function bootstrap() {
   // 1. Crée l'application NestJS
@@ -19,17 +19,19 @@ async function bootstrap() {
   const wss = new Server({ port: Number(wsPort) });
 
   // Attend que le serveur soit réellement prêt avant d'afficher le message
-  wss.on('listening', () => {
+  wss.on("listening", () => {
     console.log(`✅ WebSocket server ready on ws://localhost:${wsPort}`);
   });
 
   // Gestion des erreurs de démarrage du serveur
-  wss.on('error', (error: any) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`❌ Le port ${wsPort} est déjà utilisé. Arrêtez l'autre instance ou changez le port.`);
+  wss.on("error", (error: any) => {
+    if (error.code === "EADDRINUSE") {
+      console.error(
+        `❌ Le port ${wsPort} est déjà utilisé. Arrêtez l'autre instance ou changez le port.`,
+      );
       process.exit(1);
     } else {
-      console.error('❌ Erreur lors du démarrage du serveur WebSocket:', error);
+      console.error("❌ Erreur lors du démarrage du serveur WebSocket:", error);
       process.exit(1);
     }
   });
@@ -38,22 +40,22 @@ async function bootstrap() {
   const gateway = app.get(TranscriptionGateway);
 
   // 5. Gère les connexions WebSocket
-  wss.on('connection', (socket) => {
-    console.log('🟢 Client WebSocket connecté');
+  wss.on("connection", (socket) => {
+    console.log("🟢 Client WebSocket connecté");
     gateway.handleConnection(socket as any);
 
-    socket.on('message', (data, isBinary) => {
+    socket.on("message", (data, isBinary) => {
       // Délègue au gateway
       (gateway as any).handleMessage(socket as any, data as Buffer, !!isBinary);
     });
 
-    socket.on('close', () => {
-      console.log('🔴 Client WebSocket déconnecté');
+    socket.on("close", () => {
+      console.log("🔴 Client WebSocket déconnecté");
       gateway.handleDisconnect(socket as any);
     });
 
-    socket.on('error', (error) => {
-      console.error('❌ Erreur WebSocket:', error);
+    socket.on("error", (error) => {
+      console.error("❌ Erreur WebSocket:", error);
     });
   });
 }

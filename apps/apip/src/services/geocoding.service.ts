@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from "@nestjs/common";
 
 export interface Location {
   lat: number;
@@ -13,7 +13,7 @@ export interface Hospital {
   lat: number;
   lng: number;
   distance: number; // en km
-  type: 'hospital' | 'emergency' | 'fire_station';
+  type: "hospital" | "emergency" | "fire_station";
 }
 
 @Injectable()
@@ -22,9 +22,9 @@ export class GeocodingService {
   private readonly apiKey: string;
 
   constructor() {
-    this.apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
+    this.apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
     if (!this.apiKey) {
-      this.logger.warn('⚠️ GOOGLE_MAPS_API_KEY not configured');
+      this.logger.warn("⚠️ GOOGLE_MAPS_API_KEY not configured");
     }
   }
 
@@ -39,7 +39,7 @@ export class GeocodingService {
       }
 
       if (!this.apiKey) {
-        this.logger.error('❌ Google Maps API key not configured');
+        this.logger.error("❌ Google Maps API key not configured");
         return null;
       }
 
@@ -49,19 +49,23 @@ export class GeocodingService {
       const response = await fetch(url);
       const data = await response.json();
 
-      if (data.status === 'OK' && data.results && data.results.length > 0) {
+      if (data.status === "OK" && data.results && data.results.length > 0) {
         const result = data.results[0];
         const location = result.geometry.location;
 
-        this.logger.log(`📍 Geocodé: "${address}" → ${location.lat}, ${location.lng}`);
+        this.logger.log(
+          `📍 Geocodé: "${address}" → ${location.lat}, ${location.lng}`,
+        );
         return {
           lat: location.lat,
           lng: location.lng,
-          address: result.formatted_address
+          address: result.formatted_address,
         };
       }
 
-      this.logger.warn(`⚠️ Adresse non trouvée: "${address}" (status: ${data.status})`);
+      this.logger.warn(
+        `⚠️ Adresse non trouvée: "${address}" (status: ${data.status})`,
+      );
       return null;
     } catch (error) {
       this.logger.error(`Geocoding failed: ${error.message}`);
@@ -73,10 +77,13 @@ export class GeocodingService {
    * Trouver hôpitaux les plus proches
    * Utilise Google Maps Places API (Nearby Search)
    */
-  async findNearestHospitals(location: Location, radiusKm = 10): Promise<Hospital[]> {
+  async findNearestHospitals(
+    location: Location,
+    radiusKm = 10,
+  ): Promise<Hospital[]> {
     try {
       if (!this.apiKey) {
-        this.logger.error('❌ Google Maps API key not configured');
+        this.logger.error("❌ Google Maps API key not configured");
         return [];
       }
 
@@ -88,7 +95,7 @@ export class GeocodingService {
       const response = await fetch(url);
       const data = await response.json();
 
-      if (data.status === 'OK' && data.results && data.results.length > 0) {
+      if (data.status === "OK" && data.results && data.results.length > 0) {
         const hospitals = data.results
           .map((place: any) => {
             const lat = place.geometry.location.lat;
@@ -97,21 +104,31 @@ export class GeocodingService {
             return {
               id: `google-${place.place_id}`,
               name: place.name,
-              address: place.vicinity || place.formatted_address || 'Adresse inconnue',
+              address:
+                place.vicinity || place.formatted_address || "Adresse inconnue",
               lat,
               lng,
-              distance: this.calculateDistance(location.lat, location.lng, lat, lng),
-              type: 'hospital' as const
+              distance: this.calculateDistance(
+                location.lat,
+                location.lng,
+                lat,
+                lng,
+              ),
+              type: "hospital" as const,
             };
           })
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 5); // Top 5
 
-        this.logger.log(`🏥 Trouvé ${hospitals.length} hôpitaux dans ${radiusKm}km via Google Maps`);
+        this.logger.log(
+          `🏥 Trouvé ${hospitals.length} hôpitaux dans ${radiusKm}km via Google Maps`,
+        );
         return hospitals;
       }
 
-      this.logger.warn(`⚠️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})`);
+      this.logger.warn(
+        `⚠️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})`,
+      );
       return [];
     } catch (error) {
       this.logger.error(`Find hospitals failed: ${error.message}`);
@@ -123,10 +140,13 @@ export class GeocodingService {
    * Trouver casernes pompiers les plus proches
    * Utilise Google Maps Places API
    */
-  async findNearestFireStations(location: Location, radiusKm = 10): Promise<Hospital[]> {
+  async findNearestFireStations(
+    location: Location,
+    radiusKm = 10,
+  ): Promise<Hospital[]> {
     try {
       if (!this.apiKey) {
-        this.logger.error('❌ Google Maps API key not configured');
+        this.logger.error("❌ Google Maps API key not configured");
         return [];
       }
 
@@ -138,7 +158,7 @@ export class GeocodingService {
       const response = await fetch(url);
       const data = await response.json();
 
-      if (data.status === 'OK' && data.results && data.results.length > 0) {
+      if (data.status === "OK" && data.results && data.results.length > 0) {
         const stations = data.results
           .map((place: any) => {
             const lat = place.geometry.location.lat;
@@ -147,17 +167,25 @@ export class GeocodingService {
             return {
               id: `google-fire-${place.place_id}`,
               name: place.name,
-              address: place.vicinity || place.formatted_address || 'Adresse inconnue',
+              address:
+                place.vicinity || place.formatted_address || "Adresse inconnue",
               lat,
               lng,
-              distance: this.calculateDistance(location.lat, location.lng, lat, lng),
-              type: 'fire_station' as const
+              distance: this.calculateDistance(
+                location.lat,
+                location.lng,
+                lat,
+                lng,
+              ),
+              type: "fire_station" as const,
             };
           })
           .sort((a, b) => a.distance - b.distance)
           .slice(0, 3); // Top 3
 
-        this.logger.log(`🚒 Trouvé ${stations.length} casernes pompiers dans ${radiusKm}km via Google Maps`);
+        this.logger.log(
+          `🚒 Trouvé ${stations.length} casernes pompiers dans ${radiusKm}km via Google Maps`,
+        );
         return stations;
       }
 
@@ -175,10 +203,10 @@ export class GeocodingService {
   calculateETA(distanceKm: number, priority: string): number {
     // Vitesses moyennes en ville selon priorité
     const speeds = {
-      'P0': 60, // km/h (sirène, urgence vitale)
-      'P1': 50,
-      'P2': 40,
-      'P3': 30
+      P0: 60, // km/h (sirène, urgence vitale)
+      P1: 50,
+      P2: 40,
+      P3: 30,
     };
 
     const speed = speeds[priority] || 40;
@@ -192,15 +220,22 @@ export class GeocodingService {
   /**
    * Calculer distance entre 2 points (formule Haversine)
    */
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
     const R = 6371; // Rayon Terre en km
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
 
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(this.deg2rad(lat1)) *
+        Math.cos(this.deg2rad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     const distance = R * c;

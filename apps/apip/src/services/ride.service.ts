@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PublicRide } from '../types';
+import { Injectable, Logger } from "@nestjs/common";
+import { PublicRide } from "../types";
 
 /**
  * Service to manage ride tracking data in memory
@@ -28,7 +28,7 @@ export class RideService {
   /**
    * Update ride status
    */
-  updateStatus(token: string, status: PublicRide['status']): boolean {
+  updateStatus(token: string, status: PublicRide["status"]): boolean {
     const ride = this.rides.get(token);
     if (!ride) return false;
 

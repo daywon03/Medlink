@@ -1,11 +1,17 @@
-import { Logger } from '@nestjs/common';
-import { OnGatewayConnection, OnGatewayDisconnect, WebSocketServer } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Logger } from "@nestjs/common";
+import {
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  WebSocketServer,
+} from "@nestjs/websockets";
+import { Server, Socket } from "socket.io";
 
 /**
  * Base Gateway with common functionality for all WebSocket gateways
  */
-export abstract class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export abstract class BaseGateway
+  implements OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   protected server: Server;
 
@@ -31,10 +37,10 @@ export abstract class BaseGateway implements OnGatewayConnection, OnGatewayDisco
    */
   protected onConnection(client: Socket): void {
     // Default: send connection confirmation
-    client.emit('connected', {
+    client.emit("connected", {
       ok: true,
       at: new Date().toISOString(),
-      clientId: client.id
+      clientId: client.id,
     });
   }
 

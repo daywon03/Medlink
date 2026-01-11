@@ -1,5 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import Redis from 'ioredis';
+import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import Redis from "ioredis";
 
 /**
  * Redis Service - Pub/Sub pour communication inter-gateway
@@ -13,8 +13,8 @@ export class RedisService implements OnModuleDestroy {
 
   constructor() {
     const redisConfig = {
-      host: process.env.REDIS_HOST || 'localhost',
-      port: parseInt(process.env.REDIS_PORT || '6379'),
+      host: process.env.REDIS_HOST || "localhost",
+      port: parseInt(process.env.REDIS_PORT || "6379"),
       retryStrategy: (times: number) => {
         const delay = Math.min(times * 50, 2000);
         return delay;
@@ -27,20 +27,20 @@ export class RedisService implements OnModuleDestroy {
     // Subscriber instance (doit être séparé du publisher)
     this.subscriber = new Redis(redisConfig);
 
-    this.publisher.on('connect', () => {
-      this.logger.log('✅ Redis Publisher connected');
+    this.publisher.on("connect", () => {
+      this.logger.log("✅ Redis Publisher connected");
     });
 
-    this.subscriber.on('connect', () => {
-      this.logger.log('✅ Redis Subscriber connected');
+    this.subscriber.on("connect", () => {
+      this.logger.log("✅ Redis Subscriber connected");
     });
 
-    this.publisher.on('error', (err) => {
-      this.logger.error('❌ Redis Publisher error:', err);
+    this.publisher.on("error", (err) => {
+      this.logger.error("❌ Redis Publisher error:", err);
     });
 
-    this.subscriber.on('error', (err) => {
-      this.logger.error('❌ Redis Subscriber error:', err);
+    this.subscriber.on("error", (err) => {
+      this.logger.error("❌ Redis Subscriber error:", err);
     });
   }
 
@@ -49,9 +49,12 @@ export class RedisService implements OnModuleDestroy {
    */
   async publish(channel: string, message: any): Promise<void> {
     try {
-      const payload = typeof message === 'string' ? message : JSON.stringify(message);
+      const payload =
+        typeof message === "string" ? message : JSON.stringify(message);
       await this.publisher.publish(channel, payload);
-      this.logger.debug(`📡 Published to ${channel}: ${payload.substring(0, 100)}...`);
+      this.logger.debug(
+        `📡 Published to ${channel}: ${payload.substring(0, 100)}...`,
+      );
     } catch (error) {
       this.logger.error(`Failed to publish to ${channel}:`, error);
       throw error;
@@ -61,12 +64,15 @@ export class RedisService implements OnModuleDestroy {
   /**
    * S'abonner à un channel Redis
    */
-  async subscribe(channel: string, callback: (message: any) => void): Promise<void> {
+  async subscribe(
+    channel: string,
+    callback: (message: any) => void,
+  ): Promise<void> {
     try {
       await this.subscriber.subscribe(channel);
       this.logger.log(`👂 Subscribed to Redis channel: ${channel}`);
 
-      this.subscriber.on('message', (ch, msg) => {
+      this.subscriber.on("message", (ch, msg) => {
         if (ch === channel) {
           try {
             const parsed = JSON.parse(msg);
@@ -95,7 +101,7 @@ export class RedisService implements OnModuleDestroy {
    * Cleanup lors de la destruction du module
    */
   async onModuleDestroy() {
-    this.logger.log('🔌 Disconnecting Redis clients...');
+    this.logger.log("🔌 Disconnecting Redis clients...");
     await this.publisher.quit();
     await this.subscriber.quit();
   }

@@ -2,12 +2,11 @@
 
 import styles from "./page.module.css";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useState, Suspense, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getProfileRole, login, logout } from "../../../lib/auth";
 
-
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -42,7 +41,7 @@ export default function LoginPage() {
   }
 
   return (
-   
+
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.logoWrap}>
@@ -109,5 +108,13 @@ export default function LoginPage() {
       </div>
     </div>
   );
-
 }
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div>Chargement...</div>}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
