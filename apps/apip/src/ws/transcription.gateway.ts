@@ -60,17 +60,24 @@ export class TranscriptionGateway {
         this.logger.log(`📩 Message: ${msg.type}`);
 
         if (msg.type === 'start_call') {
-          const citizen = await this.supa.createAnonymousCitizen();
-          ctx.citizenId = citizen.citizen_id;
-          this.logger.log(`👤 Citoyen créé: ${citizen.citizen_id}`);
+          try {
+            const citizen = await this.supa.createAnonymousCitizen();
+            ctx.citizenId = citizen.citizen_id;
+            this.logger.log(`👤 Citoyen créé: ${citizen.citizen_id}`);
 
-          const call = await this.supa.createCall({
-            citizen_id: citizen.citizen_id,
-            location_input_text: null
-          });
+            const call = await this.supa.createCall({
+              citizen_id: citizen.citizen_id,
+              location_input_text: null
+            });
 
-          ctx.callId = call.call_id;
-          this.logger.log(`📞 Appel créé: ${call.call_id}`);
+            ctx.callId = call.call_id;
+            this.logger.log(`📞 Appel créé: ${call.call_id}`);
+          } catch (error) {
+            const message = (error as Error).message || 'Erreur création appel';
+            this.logger.error(`❌ Échec création appel: ${message}`);
+            this.send(client, 'error', { message: 'Impossible de créer l’appel. Vérifiez Supabase.' });
+            return;
+          }
 
           // Connect ElevenLabs Realtime WebSocket for this call
           await this.elevenLabsRealtime.connectForCall(
@@ -123,20 +130,13 @@ export class TranscriptionGateway {
               }
 
               // TTS + send to frontend
-              this.logger.log(`🔊 Agent parle: "${armResult.response}"`);
-              const audioBuffer = await this.tts.textToSpeech(armResult.response);
-              const audioBase64 = audioBuffer.toString('base64');
-              this.send(client, 'agent_speech', { text: armResult.response, audio: audioBase64 });
+              await this.safeTtsSend(client, armResult.response);
             },
           );
 
           // Send greeting
           const greeting = this.elizaArm.getGreeting();
-          this.logger.log(`🔊 Agent parle: "${greeting}"`);
-
-          const greetingAudio = await this.tts.textToSpeech(greeting);
-          const greetingBase64 = greetingAudio.toString('base64');
-          this.send(client, 'agent_speech', { text: greeting, audio: greetingBase64 });
+          await this.safeTtsSend(client, greeting);
         }
 
         else if (msg.type === 'end_call') {
@@ -259,10 +259,7 @@ export class TranscriptionGateway {
                     }
                   }
 
-                  this.logger.log(`🔊 Agent parle: "${armResult.response}"`);
-                  const audioBuffer = await this.tts.textToSpeech(armResult.response);
-                  const audioBase64 = audioBuffer.toString('base64');
-                  this.send(client, 'agent_speech', { text: armResult.response, audio: audioBase64 });
+                  await this.safeTtsSend(client, armResult.response);
                 },
               );
 
@@ -284,10 +281,27 @@ export class TranscriptionGateway {
   private extractAddress(text: string): string | null {
     if (!text || text.trim().length === 0) return null;
 
-    const pattern = /(\d+\s+(?:rue|avenue|boulevard|place|impasse)\s+[\w\s'-]+(?:,\s*[\w\s]+)?)/i;
+    const pattern =
+      /\b(\d{1,4}\s?(?:bis|ter|quater)?\s+(?:rue|avenue|av\.?|boulevard|bd\.?|place|pl\.?|chemin|impasse|all[ée]e|route|rte\.?|quai|cours|passage|square|voie)\s+[A-Za-zÀ-ÿ0-9'’\-\s]+?)(?:\s*,?\s*[A-Za-zÀ-ÿ-]+(?:\s+\d{1,2}(?:e|ème|er)?)?\s*(?:\d{5})?)?(?=(?:[.,;:!?]|\n|\b(?:j['’]ai|je|il|elle|on|nous|vous|c['’]est|oui|non|accident|douleur|fracture|saigne|malaise|chute)\b)|$)/i;
     const match = text.match(pattern);
 
-    if (match) return match[0].trim();
+    if (match) {
+      let addr = match[0].replace(/\s+/g, ' ').trim();
+      addr = addr.replace(/[.,;:!?]+$/g, '').trim();
+      const postal = text.match(/\b\d{5}\b/)?.[0];
+      const cityMatch = text.match(/\b(Paris|Lyon|Marseille|Toulouse|Nice|Nantes|Montpellier|Strasbourg|Bordeaux|Lille)(?:\s+\d{1,2}(?:e|ème|er)?)?\b/i);
+      const hasPostal = /\b\d{5}\b/.test(addr);
+      const hasCity = cityMatch ? new RegExp(`\\b${cityMatch[0].replace(/\s+/g, '\\s+')}\\b`, 'i').test(addr) : false;
+
+      if (postal && !hasPostal) {
+        addr = `${addr}, ${postal}`.replace(/\s+,/g, ',').trim();
+      }
+      if (cityMatch && !hasCity) {
+        addr = `${addr}, ${cityMatch[0]}`.replace(/\s+,/g, ',').trim();
+      }
+
+      return addr.length >= 8 ? addr : null;
+    }
 
     const pattern2 = /(?:j'habite|habite|suis)\s+(?:au|à|dans|sur)\s+([\d\s\w,'-]+)/i;
     const match2 = text.match(pattern2);
@@ -298,6 +312,18 @@ export class TranscriptionGateway {
   private send(client: WebSocket, type: string, payload: any) {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify({ type, payload }));
+    }
+  }
+
+  private async safeTtsSend(client: WebSocket, text: string) {
+    try {
+      this.logger.log(`🔊 Agent parle: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`);
+      const audioBuffer = await this.tts.textToSpeech(text);
+      const audioBase64 = audioBuffer.toString('base64');
+      this.send(client, 'agent_speech', { text, audio: audioBase64 });
+    } catch (error) {
+      this.logger.error(`❌ TTS failed: ${(error as Error).message}`);
+      this.send(client, 'agent_speech', { text, audio: null, ttsError: true });
     }
   }
 }

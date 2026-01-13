@@ -44,13 +44,27 @@ const detectP0 = (message: string): boolean => {
 };
 
 /**
- * Extraction d'adresse
+ * Extraction d'adresse (FR)
  */
+const STOP_WORDS = /\b(?:j['’]ai|je\s+suis|j['’]habite|il\s+|elle\s+|on\s+|nous\s+|vous\s+|c['’]est|oui|non|accident|douleur|fracture|saigne|malaise|chute)\b/i;
+const ADDRESS_REGEX =
+  /\b(\d{1,4}\s?(?:bis|ter|quater)?\s+(?:rue|avenue|av\.?|boulevard|bd\.?|place|pl\.?|chemin|impasse|all[ée]e|route|rte\.?|quai|cours|passage|square|voie)\s+[A-Za-zÀ-ÿ0-9'’\-\s]+?)(?:\s*,?\s*[A-Za-zÀ-ÿ-]+(?:\s+\d{1,2}(?:e|ème|er)?)?\s*(?:\d{5})?)?(?=(?:[.,;:!?]|\n|\b(?:j['’]ai|je|il|elle|on|nous|vous|c['’]est|oui|non|accident|douleur|fracture|saigne|malaise|chute)\b)|$)/i;
+
+const normalizeAddress = (value: string): string => {
+  let text = value.replace(/\s+/g, ' ').trim();
+  text = text.replace(/[.,;:!?]+$/g, '').trim();
+  const stopIndex = text.search(STOP_WORDS);
+  if (stopIndex > 0) {
+    text = text.slice(0, stopIndex).trim();
+  }
+  return text;
+};
+
 const extractAddress = (message: string): string | null => {
-  // Pattern pour détecter une adresse française
-  const addressPattern = /(\d+)\s+(rue|avenue|boulevard|place|chemin|impasse|allée)\s+([^\n,]+)/i;
-  const match = message.match(addressPattern);
-  return match ? match[0] : null;
+  const match = message.match(ADDRESS_REGEX);
+  if (!match) return null;
+  const addr = normalizeAddress(match[0]);
+  return addr.length >= 8 ? addr : null;
 };
 
 /**
@@ -69,6 +83,22 @@ const extractLocation = (message: string): { ville?: string; codePostal?: string
     ville: villeMatch ? villeMatch[0] : undefined,
     codePostal: codeMatch ? codeMatch[0] : undefined
   };
+};
+
+const buildFullAddress = (
+  adresse: string,
+  ville?: string,
+  codePostal?: string,
+): string => {
+  const normalized = adresse.replace(/\s+/g, ' ').trim();
+  const hasPostal = /\b\d{5}\b/.test(normalized);
+  const hasCity = ville ? new RegExp(`\\b${ville.replace(/\s+/g, '\\s+')}\\b`, 'i').test(normalized) : false;
+
+  const parts = [normalized];
+  if (codePostal && !hasPostal) parts.push(codePostal);
+  if (ville && !hasCity) parts.push(ville);
+
+  return parts.join(', ').replace(/\s+,/g, ',').trim();
 };
 
 /**
@@ -96,17 +126,29 @@ export const collectInfoAction: CollectInfoAction = {
       result.message = 'URGENCE VITALE DÉTECTÉE';
     }
 
-    // Extraction adresse
-    const adresse = extractAddress(userMessage);
-    if (adresse) {
-      result.data.adresse = adresse;
-    }
-
     // Extraction localisation
     const location = extractLocation(userMessage);
     if (location) {
       result.data.ville = location.ville;
       result.data.code_postal = location.codePostal;
+    }
+
+    // Extraction adresse
+    const adresse = extractAddress(userMessage);
+    if (adresse) {
+      const mergedVille = location?.ville ?? context?.ville;
+      const mergedPostal = location?.codePostal ?? context?.code_postal;
+      const fullAddress = buildFullAddress(adresse, mergedVille, mergedPostal);
+      if (context?.adresse !== fullAddress) {
+        result.data.adresse = fullAddress;
+        result.data.adresse_confirmee = false;
+        result.data.adresse_confirmation_sent = false;
+      }
+    } else if (context?.adresse && !context?.adresse_confirmee) {
+      const confirmPattern = /\b(oui|exact|c['’]est\s*(?:bien|ça|ca)|correct|d['’]accord|ok)\b/i;
+      if (confirmPattern.test(userMessage)) {
+        result.data.adresse_confirmee = true;
+      }
     }
 
     // Détection état de conscience (si mentionné)

@@ -59,9 +59,9 @@ export class CallsController {
             : 5; // ✅ P5 = "En cours" (pas encore classé)
 
           // 🆕 Parser données geocoding
-          const hospitalData = triage?.nearest_hospital_data || null;
-          const location = triage?.patient_location || null;
-          const fireStation = triage?.fire_station_data || null;
+          const hospitalData = this.parseMaybeJson(triage?.nearest_hospital_data) || null;
+          const location = this.parseMaybeJson(triage?.patient_location) || null;
+          const fireStation = this.parseMaybeJson(triage?.fire_station_data) || null;
 
           return {
             id: call.call_id,
@@ -75,8 +75,8 @@ export class CallsController {
               : '📞 Appel en cours...', // ✅ Texte par défaut pour appels actifs
             locationLabel: call.location_input_text || 'En attente adresse...',
             // ✅ Coordonnées réelles depuis geocoding (fallback Paris si pas dispo)
-            lat: location?.lat || 48.8566,
-            lng: location?.lng || 2.3522,
+            lat: Number(location?.lat ?? 48.8566),
+            lng: Number(location?.lng ?? 2.3522),
             symptoms: [],
             notes: hasTriage
               ? triage.ai_explanation || ''
@@ -96,6 +96,16 @@ export class CallsController {
         success: false,
         message: error.message
       };
+    }
+  }
+
+  private parseMaybeJson(value: any) {
+    if (!value) return null;
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
     }
   }
 }

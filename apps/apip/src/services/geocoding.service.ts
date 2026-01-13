@@ -25,6 +25,8 @@ export class GeocodingService {
     this.apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
     if (!this.apiKey) {
       this.logger.warn('⚠️ GOOGLE_MAPS_API_KEY not configured');
+    } else {
+      this.logger.log(`🗝️ Google Maps API key loaded (${this.apiKey.length} chars)`);
     }
   }
 
@@ -61,7 +63,10 @@ export class GeocodingService {
         };
       }
 
-      this.logger.warn(`⚠️ Adresse non trouvée: "${address}" (status: ${data.status})`);
+      this.logger.warn(
+        `⚠️ Adresse non trouvée: "${address}" (status: ${data.status})` +
+          (data.error_message ? ` - ${data.error_message}` : '')
+      );
       return null;
     } catch (error) {
       this.logger.error(`Geocoding failed: ${error.message}`);
@@ -111,7 +116,10 @@ export class GeocodingService {
         return hospitals;
       }
 
-      this.logger.warn(`⚠️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})`);
+      this.logger.warn(
+        `⚠️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})` +
+          (data.error_message ? ` - ${data.error_message}` : '')
+      );
       return [];
     } catch (error) {
       this.logger.error(`Find hospitals failed: ${error.message}`);
@@ -161,7 +169,10 @@ export class GeocodingService {
         return stations;
       }
 
-      this.logger.warn(`⚠️ Aucune caserne trouvée dans ${radiusKm}km`);
+      this.logger.warn(
+        `⚠️ Aucune caserne trouvée dans ${radiusKm}km` +
+          (data.error_message ? ` - ${data.error_message}` : '')
+      );
       return [];
     } catch (error) {
       this.logger.error(`Find fire stations failed: ${error.message}`);

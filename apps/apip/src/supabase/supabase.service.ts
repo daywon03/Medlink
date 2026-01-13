@@ -5,10 +5,24 @@ import { randomUUID } from 'crypto';
 
 @Injectable()
 export class SupabaseService {
-  private supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY!
-  );
+  private supabase;
+
+  constructor() {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+
+    if (!url || !key) {
+      const missing = [
+        !url ? 'SUPABASE_URL' : null,
+        !key ? 'SUPABASE_SERVICE_KEY (ou SUPABASE_KEY)' : null,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      throw new Error(`Supabase env manquantes: ${missing}`);
+    }
+
+    this.supabase = createClient(url, key);
+  }
 
   // Crée un citoyen anonyme pour chaque appel
   async createAnonymousCitizen() {

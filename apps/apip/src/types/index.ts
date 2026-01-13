@@ -51,11 +51,19 @@ export interface ArmActionPayload {
     | "assign_ambulance"
     | "edit_incident"
     | "notify_citizen"
+    | "notify_hospital"
     | "create_incident";
   incidentId?: string;
   team?: string;
   notes?: string;
   message?: string;
+  hospital?: {
+    name: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+  };
+  etaMinutes?: number;
   incident?: Incident;
 }
 
