@@ -11,7 +11,6 @@ type Props = {
   subtitle?: string;
   actions?: ReactNode;
   requireAuth?: boolean;
-  requiredRole?: string;
   hideSidebar?: boolean;
   children: ReactNode;
 };
@@ -25,7 +24,6 @@ export default function MedlinkLayout({
   subtitle,
   actions,
   requireAuth = false,
-  requiredRole = "agent_arm",
   hideSidebar = false,
   children,
 }: Props) {
@@ -47,25 +45,13 @@ export default function MedlinkLayout({
         return;
       }
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
-
-      if (!profile?.role || profile.role !== requiredRole) {
-        await supabase.auth.signOut();
-        router.replace("/login?unauthorized=1");
-        return;
-      }
-
       setChecking(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [requireAuth, requiredRole, router]);
+  }, [requireAuth, router]);
 
   useEffect(() => {
     let cancelled = false;

@@ -4,7 +4,7 @@ import styles from "./page.module.css";
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getProfileRole, login, logout } from "../../../lib/auth";
+import { login } from "../../../lib/auth";
 
 
 export default function LoginPage() {
@@ -23,16 +23,7 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      const data = await login(email, password);
-      const userId = data.user?.id;
-      if (!userId) throw new Error("Utilisateur invalide.");
-
-      const role = await getProfileRole(userId);
-      if (role !== "agent_arm") {
-        await logout();
-        setError("Accès refusé: compte non autorisé.");
-        return;
-      }
+      await login(email, password);
       router.push("/arm");
     } catch (err: any) {
       setError(err?.message ?? "Erreur de connexion.");
@@ -42,7 +33,7 @@ export default function LoginPage() {
   }
 
   return (
-   
+
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.logoWrap}>
