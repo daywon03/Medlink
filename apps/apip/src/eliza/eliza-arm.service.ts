@@ -1,6 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { triageCharacter, type Character } from './characters';
 import { collectInfoAction } from './actions';
+import { GeocodingService } from '../services/geocoding.service';
+import { SupabaseService } from '../supabase/supabase.service';
+import { RedisService } from '../services/redis.service';
 
 interface Message {
     role: 'system' | 'user' | 'assistant';
@@ -9,7 +12,8 @@ interface Message {
 
 interface ConversationContext {
     messages: Message[];
-    collectedInfo: any; // Données collectées par collectInfoAction
+    collectedInfo: any;
+    _geocoded?: boolean; // Flag pour éviter recherches multiples
 }
 
 @Injectable()
@@ -17,6 +21,12 @@ export class ElizaArmService implements OnModuleInit {
     private readonly logger = new Logger(ElizaArmService.name);
     private conversationContexts: Map<string, ConversationContext> = new Map();
     private character: Character;
+
+    constructor(
+        private readonly geocoding: GeocodingService,
+        private readonly supabase: SupabaseService,
+        private readonly redis: RedisService,
+    ) {}
 
     async onModuleInit() {
         try {
@@ -49,6 +59,33 @@ export class ElizaArmService implements OnModuleInit {
     }
 
     /**
+     * 🆕 Génère résumé progressif selon avancement conversation
+     * Permet affichage dashboard ARM dès le premier échange
+     */
+    private async generateProgressiveSummary(context: ConversationContext): Promise<string> {
+        const messageCount = context.messages.filter(m => m.role !== 'system').length;
+
+        // 1 échange : résumé minimaliste
+        if (messageCount === 2) {
+            const firstUserMsg = context.messages.find(m => m.role === 'user')?.content || '';
+            return `Appel démarré - ${firstUserMsg.substring(0, 80)}...`;
+        }
+
+        // 2-3 échanges : concaténation messages utilisateur
+        if (messageCount < 4) {
+            const userMessages = context.messages
+                .filter(m => m.role === 'user')
+                .map(m => m.content)
+                .join(' | ');
+
+            return `En cours: ${userMessages.substring(0, 150)}...`;
+        }
+
+        // 4+ échanges : résumé complet (ne devrait pas arriver ici normalement)
+        return await this.generateCallSummary(context);
+    }
+
+    /**
      * Generate response using Groq API with Triage Character
      * Now returns both response and triage summary for database save
      */
@@ -64,6 +101,8 @@ export class ElizaArmService implements OnModuleInit {
             confidence: number;
             symptoms: string[];
             vitalEmergency: boolean;
+            isPartial?: boolean; // 🆕 Flag résumé partiel
+            agentAdvice?: string; // 🆕 Conseils détaillés de l'agent
         };
     }> {
         try {
@@ -141,31 +180,43 @@ export class ElizaArmService implements OnModuleInit {
             this.logger.log(`   Response: "${armResponse.substring(0, 100)}${armResponse.length > 100 ? '...' : ''}"`);
 
             // Générer résumé + classification après quelques échanges
-            // (au lieu d'attendre adresse, génère toujours après 2+ messages)
+            // ✅ NOUVEAU : Dès 2 messages (1 échange) au lieu de 4
             let triageData;
             const messageCount = context.messages.filter(m => m.role !== 'system').length;
 
-            if (messageCount >= 4) { // Au moins 2 échanges (user + assistant x2)
+            if (messageCount >= 2) { // ✅ Dès le premier échange
                 try {
-                    this.logger.log(`🔄 Génération résumé (${messageCount} messages)...`);
+                    this.logger.log(`🔄 Génération résumé progressif (${messageCount} messages)...`);
 
-                    const summary = await this.generateCallSummary(context);
+                    // ✅ Résumé progressif selon avancement
+                    const summary = messageCount >= 4
+                        ? await this.generateCallSummary(context)
+                        : await this.generateProgressiveSummary(context);
+
                     const priority = this.detectPriority(context.collectedInfo);
 
                     triageData = {
                         priority,
                         summary,
-                        confidence: 0.85,
+                        confidence: messageCount >= 4 ? 0.85 : 0.5, // ✅ Confiance progressive
                         symptoms: this.extractSymptoms(context),
-                        vitalEmergency: context.collectedInfo.urgence_vitale || false
+                        vitalEmergency: context.collectedInfo.urgence_vitale || false,
+                        isPartial: messageCount < 4, // 🆕 Flag résumé partiel
+                        agentAdvice: armResponse // 🆕 Sauvegarder la réponse complète de l'agent (conseils inclus)
                     };
 
-                    this.logger.log(`📋 Triage: ${priority} - "${summary.substring(0, 60)}..."`);
+                    this.logger.log(`📋 Triage ${triageData.isPartial ? 'partiel' : 'complet'}: ${priority} - "${summary.substring(0, 60)}..."`);
+
+                    // 🆕 ASYNC GEOCODING: Lancer recherche en BACKGROUND (non-bloquant)
+                    if (context.collectedInfo.adresse && !context._geocoded) {
+                        context._geocoded = true; // Flag pour éviter recherches multiples
+                        this.searchNearestServicesAsync(callId, context.collectedInfo.adresse, priority);
+                    }
                 } catch (error) {
                     this.logger.warn(`⚠️  Failed to generate triage summary: ${error.message}`);
                 }
             } else {
-                this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 4+)`);
+                this.logger.debug(`⏩ Skip résumé (seulement ${messageCount} messages, besoin 2+)`);
             }
 
             return { response: armResponse, triageData };
@@ -297,5 +348,96 @@ Résumé concis:`;
     getCollectedInfo(callId: string): any {
         const context = this.conversationContexts.get(callId);
         return context?.collectedInfo || {};
+    }
+
+    // ==========================================================================
+    // 🆕 ASYNC BACKGROUND SEARCH - Google Maps API
+    // ==========================================================================
+
+    /**
+     * Lance recherche asynchrone en background (non-bloquant)
+     * Fire and forget - ne bloque pas la réponse agent
+     */
+    private searchNearestServicesAsync(callId: string, address: string, priority: string): void {
+        // Fire and forget - ne pas await
+        this.performGeoSearch(callId, address, priority).catch(err =>
+            this.logger.error(`❌ Background geolocation error: ${err.message}`)
+        );
+    }
+
+    /**
+     * Exécute la recherche géographique complète
+     */
+    private async performGeoSearch(callId: string, address: string, priority: string): Promise<void> {
+        this.logger.log(`🔍 [ASYNC] Starting background search for: "${address}"`);
+
+        try {
+            // 1. Geocoding: Adresse → Coordonnées
+            const location = await this.geocoding.geocodeAddress(address);
+            if (!location) {
+                this.logger.warn(`⚠️ [ASYNC] Geocoding failed for: "${address}"`);
+                return;
+            }
+
+            this.logger.log(`📍 [ASYNC] Geocoded: ${location.lat}, ${location.lng}`);
+
+            // 2. Recherches parallèles: Hôpitaux + Pompiers
+            const [hospitals, fireStations] = await Promise.all([
+                this.geocoding.findNearestHospitals(location, 15),
+                this.geocoding.findNearestFireStations(location, 15)
+            ]);
+
+            const nearestHospital = hospitals.length > 0 ? hospitals[0] : null;
+            const nearestFireStation = fireStations.length > 0 ? fireStations[0] : null;
+
+            // Calculer ETA
+            const eta = nearestHospital
+                ? this.geocoding.calculateETA(nearestHospital.distance, priority as any)
+                : null;
+
+            // Log résultats
+            if (nearestHospital) {
+                this.logger.log(`🏥 [ASYNC] Hospital found: ${nearestHospital.name} (${nearestHospital.distance}km, ETA: ${eta}min)`);
+            }
+            if (nearestFireStation) {
+                this.logger.log(`🚒 [ASYNC] Fire station found: ${nearestFireStation.name} (${nearestFireStation.distance}km)`);
+            }
+
+            // 3. Sauvegarder en base
+            try {
+                await this.supabase.createOrUpdateTriageReport(callId, {
+                    priority: priority as any,
+                    summary: '', // Ne pas écraser le résumé existant
+                    confidence: 0,
+                    nearestHospital,
+                    nearestFireStation,
+                    patientLocation: location,
+                    eta: eta || undefined
+                });
+                this.logger.log(`💾 [ASYNC] Geolocation saved to database`);
+            } catch (dbErr) {
+                this.logger.warn(`⚠️ [ASYNC] Failed to save geolocation: ${dbErr.message}`);
+            }
+
+            // 4. Broadcast vers Dashboard ARM via Redis
+            try {
+                await this.redis.publish('arm:geolocation', {
+                    callId,
+                    patientLocation: location,
+                    nearestHospital,
+                    nearestFireStation,
+                    eta,
+                    timestamp: new Date().toISOString()
+                });
+                this.logger.log(`📡 [ASYNC] Geolocation broadcasted to ARM dashboard`);
+            } catch (redisErr) {
+                this.logger.warn(`⚠️ [ASYNC] Failed to broadcast: ${redisErr.message}`);
+            }
+
+            this.logger.log(`✅ [ASYNC] Background search completed for call: ${callId}`);
+
+        } catch (error) {
+            this.logger.error(`❌ [ASYNC] Search failed: ${error.message}`);
+        }
     }
 }

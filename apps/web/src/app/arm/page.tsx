@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useState, useRef, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import io, { Socket } from "socket.io-client";
+import MedlinkLayout from "../ui/MedlinkLayout";
+import { jsPDF } from "jspdf";
 
 type IncidentStatus = "nouveau" | "en_cours" | "clos";
 type Incident = {
   id: string;
   createdAt: string;
+  createdAtRaw?: string;
+  updatedAtRaw?: string;
   status: IncidentStatus;
   priority: 1 | 2 | 3 | 4 | 5;
   title: string;
@@ -78,9 +82,19 @@ export default function ArmPage() {
 
   // data
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [closedIncidents, setClosedIncidents] = useState<Incident[]>([]);
+  const [closedLoading, setClosedLoading] = useState(false);
   const incidentsRef = useRef<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
-  const selected = incidents.find((i: Incident) => i.id === selectedId) ?? incidents[0];
+  const selectedIdRef = useRef<string>("");
+  const allIncidents = useMemo(() => {
+    const map = new Map<string, Incident>();
+    incidents.forEach((i) => map.set(i.id, i));
+    closedIncidents.forEach((i) => map.set(i.id, i));
+    return Array.from(map.values());
+  }, [incidents, closedIncidents]);
+
+  const selected = allIncidents.find((i: Incident) => i.id === selectedId) ?? allIncidents[0];
 
   // filters
   const [q, setQ] = useState("");
@@ -93,14 +107,19 @@ export default function ArmPage() {
   const [openAssign, setOpenAssign] = useState(false);
   const [openEdit, setOpenEdit] = useState(false);
   const [openNotify, setOpenNotify] = useState(false);
+  const [openHistory, setOpenHistory] = useState(false);
+  const [openAssist, setOpenAssist] = useState(false);
 
   // form states
   const [assignTeam, setAssignTeam] = useState("AMB-12");
   const [editNotes, setEditNotes] = useState(selected?.notes ?? "");
-  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");  const [trackingUrl, setTrackingUrl] = useState("");
+  const [notifyMsg, setNotifyMsg] = useState("Une équipe est en cours d’assignation. Restez joignable.");
+  const [trackingUrl, setTrackingUrl] = useState("");
+  const [victimPhone, setVictimPhone] = useState("");
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
     incidentsRef.current = incidents;
+    selectedIdRef.current = selectedId; // Sync ref with state
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Socket init */
@@ -151,6 +170,66 @@ export default function ArmPage() {
         }
       });
 
+      // 🆕 Écouter updates appels temps réel
+      s.on('call:update', (data: any) => {
+        console.log('📡 Call update received:', data);
+
+        setIncidents(prev => {
+          const index = prev.findIndex(i => i.id === data.callId);
+
+          if (index !== -1) {
+            // Update appel existant
+            const updated = [...prev];
+            const priorityMap: Record<string, 1 | 2 | 3 | 4 | 5> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
+
+            updated[index] = {
+              ...updated[index],
+              title: data.summary?.substring(0, 60) || updated[index].title,
+              priority: data.priority ? (priorityMap[data.priority] ?? updated[index].priority) : updated[index].priority,
+              notes: data.summary || updated[index].notes,
+              status: data.isPartial ? 'en_cours' : 'nouveau'
+            };
+
+            return updated;
+          } else {
+            // Nouvel appel pas encore dans la liste - re-fetch
+            console.log('New call detected, refreshing list...');
+            fetchCalls();
+            return prev;
+          }
+        });
+      });
+
+      // 🆕 Écouter mises à jour géolocalisation (recherche async background)
+      s.on('call:geolocation', (data: any) => {
+        console.log('📍 Geolocation update received:', data);
+
+        setIncidents(prev => {
+          const index = prev.findIndex(i => i.id === data.callId);
+
+          if (index !== -1) {
+            const updated = [...prev];
+
+            // Mettre à jour avec données geocoding
+            updated[index] = {
+              ...updated[index],
+              lat: data.patientLocation?.lat || updated[index].lat,
+              lng: data.patientLocation?.lng || updated[index].lng,
+              locationLabel: data.patientLocation?.address || updated[index].locationLabel,
+              // Sauvegarder infos supplémentaires dans notes si hôpital trouvé
+              notes: data.nearestHospital
+                ? `${updated[index].notes || ''}\n🏥 Hôpital: ${data.nearestHospital.name} (ETA: ${data.eta || '?'}min)`
+                : updated[index].notes
+            };
+
+            console.log(`✅ Updated incident ${data.callId} with geolocation`);
+            return updated;
+          }
+
+          return prev;
+        });
+      });
+
       setSocket(s);
     })();
 
@@ -164,44 +243,100 @@ export default function ArmPage() {
   }, []);
 
   /** Fetch real calls from API */
-  useEffect(() => {
-    async function fetchCalls() {
-      try {
-        const res = await fetch('http://localhost:3001/api/calls');
-        const json = await res.json();
+  const fetchCalls = async () => {
+    try {
+      const res = await fetch('http://localhost:3001/api/calls');
+      const json = await res.json();
 
-        if (json.success && json.data) {
-          setIncidents(json.data);
-          incidentsRef.current = json.data;
-          // Auto-select first if none selected
-          if (!selectedId && json.data.length > 0) {
-            setSelectedId(json.data[0].id);
-          }
+      if (json.success && json.data) {
+        setIncidents(json.data);
+        incidentsRef.current = json.data;
+        // Auto-select first if none selected (use ref to avoid closure issue)
+        if (!selectedIdRef.current && json.data.length > 0) {
+          setSelectedId(json.data[0].id);
+          selectedIdRef.current = json.data[0].id;
         }
-      } catch (err) {
-        console.error('Failed to fetch calls:', err);
-        // Keep empty incidents on error
       }
+    } catch (err) {
+      console.error('Failed to fetch calls:', err);
+      // Keep empty incidents on error
     }
+  };
 
+  useEffect(() => {
     fetchCalls();
     // Auto-refresh every 10 seconds
     const interval = setInterval(fetchCalls, 10000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function fetchClosedIncidents(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setClosedLoading(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/incidents/closed');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setClosedIncidents(json.data);
+        return json.data as Incident[];
+      }
+    } catch (err) {
+      console.error('Failed to fetch closed incidents:', err);
+    } finally {
+      if (!opts?.silent) setClosedLoading(false);
+    }
+    setClosedIncidents([]);
+    return [];
+  }
+
+  useEffect(() => {
+    fetchClosedIncidents({ silent: true });
+    const interval = setInterval(() => fetchClosedIncidents({ silent: true }), 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!openHistory) return;
+    fetchClosedIncidents();
+    const interval = setInterval(fetchClosedIncidents, 10000);
+    return () => clearInterval(interval);
+  }, [openHistory]);
+
 
 
   /** Filter + paginate */
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return incidents.filter((i) => {
+    return allIncidents.filter((i) => {
       const okStatus = status === "tous" ? true : i.status === status;
       const hay = `${i.id} ${i.title} ${i.locationLabel} ${i.symptoms.join(" ")} ${i.notes ?? ""}`.toLowerCase();
       const okQ = qq ? hay.includes(qq) : true;
       return okStatus && okQ;
     });
-  }, [incidents, q, status]);
+  }, [allIncidents, q, status]);
+
+  const slaMinutes = useMemo(() => {
+    const samples = closedIncidents
+      .map((i) => {
+        const start = i.createdAtRaw ?? i.createdAt;
+        const end = i.updatedAtRaw ?? i.createdAtRaw ?? i.createdAt;
+        const startMs = Date.parse(start);
+        const endMs = Date.parse(end);
+        if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs < startMs) return null;
+        return (endMs - startMs) / 60000;
+      })
+      .filter((v): v is number => v !== null);
+
+    if (samples.length === 0) return null;
+    const avg = samples.reduce((sum, v) => sum + v, 0) / samples.length;
+    return Math.max(1, Math.round(avg));
+  }, [closedIncidents]);
+
+  const totalCount = useMemo(() => {
+    const ids = new Set<string>();
+    incidents.forEach((i) => ids.add(i.id));
+    closedIncidents.forEach((i) => ids.add(i.id));
+    return ids.size;
+  }, [incidents, closedIncidents]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paged = useMemo(() => {
@@ -271,40 +406,143 @@ export default function ArmPage() {
     setOpenNotify(false);
   }
 
+  function exportIncidentsCsv() {
+    const rows = [
+      ["id", "createdAt", "status", "priority", "title", "locationLabel", "lat", "lng", "symptoms", "notes"],
+      ...incidents.map((i) => [
+        i.id,
+        i.createdAt,
+        i.status,
+        String(i.priority),
+        i.title,
+        i.locationLabel,
+        String(i.lat),
+        String(i.lng),
+        i.symptoms.join("|"),
+        i.notes ?? "",
+      ]),
+    ];
+
+    const csv = rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `incidents-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadClosedIncidentsPdf() {
+    const closed = await fetchClosedIncidents();
+    if (closed.length === 0) {
+      alert("Aucun incident clos à exporter.");
+      return;
+    }
+
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    let y = margin;
+
+    let logoData: string | null = null;
+    try {
+      const res = await fetch("/MedLink_logo.png");
+      const blob = await res.blob();
+      logoData = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      logoData = null;
+    }
+
+    if (logoData) {
+      doc.addImage(logoData, "PNG", margin, y, 52, 52);
+    }
+
+    doc.setFontSize(18);
+    doc.text("Historique des incidents clos", margin + 70, y + 24);
+    doc.setFontSize(10);
+    doc.setTextColor(90);
+    doc.text(`Export du ${new Date().toLocaleString()}`, margin + 70, y + 42);
+    doc.setTextColor(0);
+    y += 72;
+
+    const colWidths = [70, 210, 120, 55, 85];
+    const headers = ["ID", "Titre", "Lieu", "Priorité", "Heure"];
+
+    const drawRow = (row: string[], isHeader = false) => {
+      const lineHeight = isHeader ? 12 : 11;
+      const cellLines = row.map((cell, idx) => {
+        const maxWidth = colWidths[idx] - 6;
+        return doc.splitTextToSize(cell, maxWidth);
+      });
+      const maxLines = Math.max(...cellLines.map((lines) => lines.length));
+      const rowHeight = Math.max(lineHeight + 6, maxLines * lineHeight + 4);
+
+      if (y + rowHeight > pageHeight - margin) {
+        doc.addPage();
+        y = margin;
+      }
+
+      doc.setFontSize(isHeader ? 10 : 9);
+      doc.setTextColor(isHeader ? 70 : 40);
+      let x = margin;
+      cellLines.forEach((lines, idx) => {
+        doc.text(lines, x + 3, y + lineHeight);
+        x += colWidths[idx];
+      });
+
+      doc.setDrawColor(220);
+      doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
+      y += rowHeight;
+      doc.setTextColor(0);
+    };
+
+    drawRow(headers, true);
+
+    closed.forEach((i) => {
+      const shortId = i.id.length > 12 ? `${i.id.slice(0, 8)}…${i.id.slice(-4)}` : i.id;
+      drawRow(
+        [
+          shortId,
+          i.title,
+          i.locationLabel,
+          `P${i.priority}`,
+          i.createdAt,
+        ],
+        false
+      );
+    });
+
+    doc.save(`incidents-clos-${new Date().toISOString().slice(0, 10)}.pdf`);
+  }
+
+  const kNew = incidents.filter((i) => i.status === "nouveau").length;
+  const kProg = incidents.filter((i) => i.status === "en_cours").length;
+  const kClosed = closedIncidents.length;
+
   return (
-    <div className="armShell">
-      {/* header */}
-      <header className="armHeader">
-        <div className="armHeaderInner">
-          <div className="brand">
-            <div className="brandIcon">🧭</div>
-            <div>
-              <div className="muted">Medlink • ARM Console</div>
-              <div className="title">Centre d’opérations</div>
-              <div className="sub">
-                <span className="dot" />
-                <span>En ligne</span>
-                <span className="sep">•</span>
-                <span>{filtered.length} incidents</span>
-                <span className="sep">•</span>
-                <span className="muted">{socket?.connected ? "Socket OK" : "Socket…"}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="actions">
-            <button className="btn btnGhost">Export</button>
-            <button className="btn btnGhost">Paramètres</button>
-            <div className="avatar" />
-          </div>
-        </div>
-      </header>
-
-      <main className="armMain">
-        {/* toolbar */}
-        <section className="toolbar">
+    <MedlinkLayout
+      title="Centre d’opérations"
+      subtitle={`${totalCount} incidents • ${status === "tous" ? "Tous statuts" : statusLabel(status)}`}
+      requireAuth
+      actions={
+        <>
+          <button className="btn btnGhost" onClick={downloadClosedIncidentsPdf}>
+            Historique
+          </button>
+          <button className="btn btnGhost" onClick={() => setOpenAssist(true)}>
+            Assistance
+          </button>
           <input
-            className="input"
+            className="medSearch"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
@@ -325,23 +563,40 @@ export default function ArmPage() {
             <option value="en_cours">En cours</option>
             <option value="clos">Clos</option>
           </select>
-          <div className="pager">
-            <div>
-              Page <b>{page}</b> / {totalPages}
-            </div>
-            <div className="pagerBtns">
-              <button className="btn btnGhost" onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                ←
-              </button>
-              <button className="btn btnGhost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-                →
-              </button>
-            </div>
-          </div>
-        </section>
+          <button className="btn btnGhost" onClick={() => setOpenHistory(true)}>
+            Logs
+          </button>
+          <button className="btn btnGhost" onClick={exportIncidentsCsv}>
+            Export
+          </button>
+          <div className="medAvatar" />
+        </>
+      }
+    >
+      <section className="kpiRow">
+        <div className="kpiCard">
+          <div className="kpiLabel">Nouveaux</div>
+          <div className="kpiValue">{kNew}</div>
+          <div className="kpiHint">Aujourd’hui</div>
+        </div>
+        <div className="kpiCard">
+          <div className="kpiLabel">En cours</div>
+          <div className="kpiValue">{kProg}</div>
+          <div className="kpiHint">Aujourd’hui</div>
+        </div>
+        <div className="kpiCard">
+          <div className="kpiLabel">Clos</div>
+          <div className="kpiValue">{kClosed}</div>
+          <div className="kpiHint">Aujourd’hui</div>
+        </div>
+        <div className="kpiCard">
+          <div className="kpiLabel">SLA (démo)</div>
+          <div className="kpiValue">{slaMinutes === null ? "—" : `${slaMinutes} min`}</div>
+          <div className="kpiHint">Aujourd’hui</div>
+        </div>
+      </section>
 
-        {/* grid */}
-        <section className="grid">
+      <section className="grid">
           {/* LEFT */}
           <div className="card">
             <div className="cardHead">
@@ -353,9 +608,12 @@ export default function ArmPage() {
                 className="btn btnGhost"
                 onClick={() => {
                   const id = `INC-${Math.floor(1000 + Math.random() * 9000)}`;
+                  const nowIso = new Date().toISOString();
                   const newIncident: Incident = {
                     id,
-                    createdAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+                    createdAt: nowIso.slice(0, 16).replace("T", " "),
+                    createdAtRaw: nowIso,
+                    updatedAtRaw: nowIso,
                     status: "nouveau",
                     priority: 3,
                     title: "Nouveau signalement (démo)",
@@ -425,6 +683,12 @@ export default function ArmPage() {
                 <button className="btn btnGhost" onClick={() => setPage(1)}>
                   Début
                 </button>
+                <button className="btn btnGhost" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                  Précédent
+                </button>
+                <button className="btn btnGhost" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                  Suivant
+                </button>
                 <button className="btn btnGhost" onClick={() => setPage(totalPages)}>
                   Fin
                 </button>
@@ -485,19 +749,19 @@ export default function ArmPage() {
                 </div>
               </div>
 
-              {/* 🔥 IMPORTANT: key pour forcer un remount -> évite pas mal de glitch Leaflet */}
+              {/* Remount key pour forcer le rafraîchissement de la carte */}
               <div className="mapWrap">
                 <MapPanel
                   key={`${selected?.id}-${selected?.lat}-${selected?.lng}`}
                   lat={selected?.lat ?? 48.8566}
                   lng={selected?.lng ?? 2.3522}
+                  address={selected?.locationLabel}
                   label={selected?.locationLabel ?? "Paris"}
                 />
               </div>
             </div>
           </div>
-        </section>
-      </main>
+      </section>
 
       {/* MODALS */}
       <Modal open={openAssign} title="Assigner une ambulance" onClose={() => setOpenAssign(false)}>
@@ -507,6 +771,13 @@ export default function ArmPage() {
           </div>
           <label className="label">Équipe / Ambulance</label>
           <input className="input" value={assignTeam} onChange={(e) => setAssignTeam(e.target.value)} placeholder="ex: AMB-12" />
+          <label className="label">Téléphone victime</label>
+          <input
+            className="input"
+            value={victimPhone}
+            onChange={(e) => setVictimPhone(e.target.value)}
+            placeholder="ex: +33612345678"
+          />
           <button className="btn btnBlue" onClick={onAssign}>
             Confirmer l’assignation
           </button>
@@ -536,6 +807,21 @@ export default function ArmPage() {
               >
                 📋 Copier le lien
               </button>
+              <button
+                className="btn btnGreen"
+                onClick={() => {
+                  if (!victimPhone.trim()) {
+                    alert("Veuillez renseigner un numéro de téléphone.");
+                    return;
+                  }
+                  const smsBody = `Votre suivi MedLink: ${window.location.origin}${trackingUrl}`;
+                  const smsUrl = `sms:${victimPhone}?&body=${encodeURIComponent(smsBody)}`;
+                  window.location.href = smsUrl;
+                }}
+                style={{ marginTop: "0.75rem", width: "100%" }}
+              >
+                📲 Envoyer par SMS
+              </button>
             </div>
           )}        </div>
       </Modal>
@@ -560,465 +846,71 @@ export default function ArmPage() {
         </div>
       </Modal>
 
-      {/* Section Triage IA - Ajouté */}
-      <section style={{ marginTop: '32px', borderTop: '2px solid rgba(255,255,255,0.1)', paddingTop: '24px' }}>
-        <TriageList />
-      </section>
+      <Modal open={openHistory} title="Historique des incidents clos" onClose={() => setOpenHistory(false)}>
+        <div className="tableWrap tableWrapScroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Titre</th>
+                <th>Lieu</th>
+                <th>Priorité</th>
+                <th>Heure</th>
+              </tr>
+            </thead>
+            <tbody>
+              {closedIncidents.map((i) => (
+                <tr key={i.id}>
+                  <td className="mono strong">{i.id}</td>
+                  <td>
+                    <div className="strong">{i.title}</div>
+                    <div className="muted small">{i.symptoms.slice(0, 3).join(" • ")}</div>
+                  </td>
+                  <td className="muted">{i.locationLabel}</td>
+                  <td>
+                    <span className={`${priorityClass(i.priority)}`}>P{i.priority}</span>
+                  </td>
+                  <td className="muted">{i.createdAt}</td>
+                </tr>
+              ))}
+              {closedIncidents.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="empty">
+                    {closedLoading ? "Chargement des incidents clos..." : "Aucun incident clos pour le moment."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Modal>
 
-      {/* CSS global intégré */}
-      <style jsx global>{`
-        :root {
-          --bg: #070a12;
-          --panel: rgba(255, 255, 255, 0.06);
-          --panel2: rgba(0, 0, 0, 0.25);
-          --stroke: rgba(255, 255, 255, 0.12);
-          --text: #e5e7eb;
-          --muted: rgba(255, 255, 255, 0.65);
-          --muted2: rgba(255, 255, 255, 0.5);
-        }
+      <Modal open={openAssist} title="Assistance MedLink" onClose={() => setOpenAssist(false)}>
+        <div className="form">
+          <div className="noteBox">
+            <div className="muted small">Numéro vert</div>
+            <div className="strong">0800 000 000</div>
+            <div className="muted small">Disponible 24/7</div>
+          </div>
+          <button
+            className="btn btnGhost"
+            onClick={() => {
+              window.location.href = "tel:0800000000";
+            }}
+          >
+            Appeler le support
+          </button>
+          <button
+            className="btn btnBlue"
+            onClick={() => {
+              window.location.href = "mailto:support@medlink.fr?subject=Ticket%20MedLink&body=Décrivez%20le%20problème%20ici.";
+            }}
+          >
+            Créer un ticket
+          </button>
+        </div>
+      </Modal>
 
-        html,
-        body {
-          height: 100%;
-        }
-        body {
-          margin: 0;
-          background: radial-gradient(1200px 800px at 30% -10%, rgba(14, 165, 233, 0.14), transparent 60%),
-            radial-gradient(1200px 800px at 70% 110%, rgba(244, 63, 94, 0.12), transparent 60%),
-            var(--bg);
-          color: var(--text);
-          font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-          overflow-x: hidden;
-        }
-        * {
-          box-sizing: border-box;
-        }
-
-        /* Layout */
-        .armShell {
-          min-height: 100vh;
-        }
-
-        .armHeader {
-          position: sticky;
-          top: 0;
-          z-index: 50;
-          border-bottom: 1px solid var(--stroke);
-          backdrop-filter: blur(10px);
-          background: rgba(7, 10, 18, 0.7);
-        }
-        .armHeaderInner {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 14px 18px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 16px;
-        }
-
-        .brand {
-          display: flex;
-          align-items: flex-start;
-          gap: 12px;
-        }
-        .brandIcon {
-          width: 40px;
-          height: 40px;
-          border-radius: 14px;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          display: grid;
-          place-items: center;
-        }
-        .title {
-          font-size: 20px;
-          font-weight: 700;
-          letter-spacing: -0.02em;
-        }
-        .sub {
-          margin-top: 6px;
-          display: flex;
-          gap: 8px;
-          align-items: center;
-          color: var(--muted);
-          font-size: 13px;
-          flex-wrap: wrap;
-        }
-        .dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 999px;
-          background: #34d399;
-          display: inline-block;
-        }
-        .sep {
-          color: rgba(255, 255, 255, 0.25);
-        }
-
-        .actions {
-          display: none;
-          align-items: center;
-          gap: 8px;
-        }
-        .avatar {
-          width: 34px;
-          height: 34px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          margin-left: 6px;
-        }
-        @media (min-width: 900px) {
-          .actions {
-            display: flex;
-          }
-        }
-
-        .armMain {
-          max-width: 1400px;
-          margin: 0 auto;
-          padding: 16px 18px 24px;
-        }
-
-        .toolbar {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
-        @media (min-width: 900px) {
-          .toolbar {
-            grid-template-columns: 1.5fr 0.7fr 0.8fr;
-            align-items: center;
-          }
-        }
-
-        .grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 14px;
-          align-items: start;
-        }
-        @media (min-width: 1100px) {
-          .grid {
-            grid-template-columns: 1.45fr 1fr;
-          }
-        }
-
-        .rightCol {
-          display: grid;
-          gap: 14px;
-        }
-
-        /* Card */
-        .card {
-          background: var(--panel);
-          border: 1px solid var(--stroke);
-          border-radius: 18px;
-          padding: 14px;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
-        }
-        .cardHead {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 12px;
-        }
-        .cardTitle {
-          font-size: 16px;
-          font-weight: 700;
-          margin-top: 2px;
-        }
-        .cardFoot {
-          margin-top: 10px;
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-
-        /* Inputs */
-        .input,
-        .select,
-        .textarea {
-          width: 100%;
-          border-radius: 14px;
-          padding: 10px 12px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.06);
-          color: var(--text);
-          outline: none;
-        }
-        .textarea {
-          min-height: 140px;
-          resize: vertical;
-        }
-        .input:focus,
-        .select:focus,
-        .textarea:focus {
-          border-color: rgba(255, 255, 255, 0.25);
-        }
-
-        .pager {
-          border-radius: 14px;
-          padding: 10px 12px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.06);
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          gap: 10px;
-          color: var(--muted);
-          font-size: 13px;
-        }
-
-        /* Buttons */
-        .btn {
-          border-radius: 12px;
-          padding: 9px 12px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(255, 255, 255, 0.08);
-          color: var(--text);
-          cursor: pointer;
-          transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
-          font-size: 13px;
-        }
-        .btn:hover {
-          background: rgba(255, 255, 255, 0.12);
-          border-color: rgba(255, 255, 255, 0.18);
-        }
-        .btn:active {
-          transform: translateY(1px);
-        }
-        .btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-        .btnGhost {
-          background: rgba(255, 255, 255, 0.08);
-        }
-        .btnBlue {
-          background: rgba(14, 165, 233, 0.16);
-          border-color: rgba(14, 165, 233, 0.25);
-        }
-        .btnBlue:hover {
-          background: rgba(14, 165, 233, 0.22);
-        }
-        .btnGreen {
-          background: rgba(16, 185, 129, 0.16);
-          border-color: rgba(16, 185, 129, 0.25);
-        }
-        .btnGreen:hover {
-          background: rgba(16, 185, 129, 0.22);
-        }
-
-        .btnRow {
-          margin-top: 10px;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 10px;
-        }
-        @media (min-width: 700px) {
-          .btnRow {
-            grid-template-columns: 1fr 1fr 1fr;
-          }
-        }
-
-        /* Table */
-        .tableWrap {
-          margin-top: 12px;
-          border-radius: 16px;
-          overflow: hidden;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-        }
-        .table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 13px;
-        }
-        .table thead th {
-          text-align: left;
-          padding: 10px 10px;
-          background: rgba(0, 0, 0, 0.28);
-          color: rgba(255, 255, 255, 0.75);
-          font-weight: 600;
-        }
-        .table tbody td {
-          padding: 10px 10px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
-          vertical-align: top;
-        }
-        .row {
-          cursor: pointer;
-          transition: background 0.15s ease;
-        }
-        .row:hover {
-          background: rgba(255, 255, 255, 0.06);
-        }
-        .row.active {
-          background: rgba(255, 255, 255, 0.1);
-        }
-        .empty {
-          padding: 18px 10px !important;
-          text-align: center;
-          color: rgba(255, 255, 255, 0.6);
-        }
-
-        .mono {
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-        }
-        .strong {
-          font-weight: 700;
-        }
-        .muted {
-          color: var(--muted);
-        }
-        .small {
-          font-size: 12px;
-        }
-
-        /* Badges */
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          padding: 4px 10px;
-          border-radius: 999px;
-          border: 1px solid rgba(255, 255, 255, 0.14);
-          font-size: 12px;
-          white-space: nowrap;
-        }
-        .badgePrioHigh {
-          background: rgba(244, 63, 94, 0.14);
-          border-color: rgba(244, 63, 94, 0.25);
-          color: rgba(253, 164, 175, 0.95);
-        }
-        .badgePrioMed {
-          background: rgba(245, 158, 11, 0.14);
-          border-color: rgba(245, 158, 11, 0.25);
-          color: rgba(252, 211, 77, 0.95);
-        }
-        .badgePrioLow {
-          background: rgba(139, 92, 246, 0.14);
-          border-color: rgba(139, 92, 246, 0.25);
-          color: rgba(196, 181, 253, 0.95);
-        }
-        .badgeStatusNew {
-          background: rgba(16, 185, 129, 0.14);
-          border-color: rgba(16, 185, 129, 0.25);
-          color: rgba(110, 231, 183, 0.95);
-        }
-        .badgeStatusProgress {
-          background: rgba(14, 165, 233, 0.14);
-          border-color: rgba(14, 165, 233, 0.25);
-          color: rgba(125, 211, 252, 0.95);
-        }
-        .badgeStatusClosed {
-          background: rgba(161, 161, 170, 0.12);
-          border-color: rgba(161, 161, 170, 0.22);
-          color: rgba(228, 228, 231, 0.9);
-        }
-
-        .badgesCol {
-          display: grid;
-          gap: 8px;
-          justify-items: end;
-        }
-
-        /* Notes */
-        .noteBox {
-          margin-top: 10px;
-          background: var(--panel2);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          border-radius: 16px;
-          padding: 10px;
-        }
-        .noteText {
-          margin-top: 6px;
-          white-space: pre-line;
-          color: rgba(255, 255, 255, 0.78);
-          font-size: 13px;
-          line-height: 1.35;
-        }
-
-        /* Map */
-        .mapWrap {
-          margin-top: 12px;
-          height: 420px;
-          border-radius: 16px;
-          overflow: hidden;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(0, 0, 0, 0.25);
-        }
-        @media (max-width: 520px) {
-          .mapWrap {
-            height: 320px;
-          }
-        }
-
-        /* Leaflet critical fixes (empêche les tiles de partir en vrille) */
-        .leaflet-container {
-          width: 100%;
-          height: 100%;
-          background: #0b1020;
-        }
-        .leaflet-container img {
-          max-width: none !important;
-        }
-        .leaflet-tile {
-          max-width: none !important;
-          max-height: none !important;
-        }
-
-        /* Modal */
-        .modalRoot {
-          position: fixed;
-          inset: 0;
-          z-index: 9999;
-          display: grid;
-          place-items: center;
-        }
-        .modalBackdrop {
-          position: absolute;
-          inset: 0;
-          background: rgba(0, 0, 0, 0.6);
-          border: 0;
-        }
-        .modalCard {
-          position: relative;
-          width: min(680px, 92vw);
-          border-radius: 18px;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: #0b1020;
-          box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
-          padding: 14px;
-        }
-        .modalHeader {
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 12px;
-        }
-        .modalTitle {
-          margin: 0;
-          font-size: 16px;
-          font-weight: 800;
-        }
-        .modalBody {
-          margin-top: 12px;
-        }
-
-        .form {
-          display: grid;
-          gap: 10px;
-        }
-        .label {
-          font-size: 12px;
-          color: rgba(255, 255, 255, 0.65);
-        }
-      `}</style>
-    </div>
+    </MedlinkLayout>
   );
 }

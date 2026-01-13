@@ -35,6 +35,7 @@ Medlink est composé de trois modules principaux :
 3. **Agent ARM IA (Groq + ElevenLabs)** - Assistant conversationnel intelligent
 
 L'agent IA utilise :
+
 - **Groq** (Llama 3.3 70B) pour la compréhension du langage naturel
 - **ElevenLabs** pour la transcription vocale (STT) et la synthèse vocale (TTS)
 - Un système de **contexte conversationnel** pour des réponses intelligentes et adaptées
@@ -44,6 +45,7 @@ L'agent IA utilise :
 ## ✨ Fonctionnalités
 
 ### 🤖 Agent ARM Intelligent
+
 - ✅ Compréhension contextuelle avancée (ne pose jamais de questions redondantes)
 - ✅ Adaptation automatique selon le contexte (patient vs témoin)
 - ✅ Priorisation intelligente des questions (adresse, gravité, conscience)
@@ -51,11 +53,13 @@ L'agent IA utilise :
 - ✅ Synthèse vocale naturelle
 
 ### 💬 Communication Temps Réel
+
 - ✅ WebSocket bidirectionnel pour audio streaming
 - ✅ Reconnexion automatique en cas de déconnexion
 - ✅ Conversion audio WebM → PCM 16kHz pour transcription
 
 ### 📊 Gestion des Appels
+
 - ✅ Création automatique de profil citoyen anonyme
 - ✅ Stockage des transcriptions dans Supabase
 - ✅ Extraction automatique d'adresse
@@ -75,18 +79,18 @@ L'agent IA utilise :
          ▼
 ┌─────────────────┐
 │   Backend       │
-│   (NestJS)      │  ← API REST + WebSocket
-│   Port: 3001    │
-│   WS: 3002      │
+│   (NestJS)      │  ← API REST + Socket.IO + WebSocket
+│   Port: 3001    │  ← API REST + Socket.IO (ARM/Tracking)
+│   Port: 3003    │  ← WebSocket vocal (ws natif)
 └────────┬────────┘
          │
-         ├─────────────────┐
-         │                 │
-         ▼                 ▼
-┌─────────────┐   ┌─────────────┐
-│   Groq AI   │   │ ElevenLabs  │
-│   (LLM)     │   │   (STT/TTS) │
-└─────────────┘   └─────────────┘
+         ├──────────────────┬─────────────────┐
+         │                  │                 │
+         ▼                  ▼                 ▼
+┌─────────────┐   ┌─────────────┐   ┌──────────────┐
+│   Groq AI   │   │ ElevenLabs  │   │    Redis     │
+│   (LLM)     │   │  (STT/TTS)  │   │  (Pub/Sub)   │
+└─────────────┘   └─────────────┘   └──────────────┘
          │
          ▼
 ┌─────────────────┐
@@ -115,12 +119,14 @@ L'agent IA utilise :
 ## 🛠️ Technologies
 
 ### Frontend
+
 - **Next.js 15** - Framework React avec App Router
 - **React 19** - Bibliothèque UI
 - **TypeScript** - Typage statique
 - **WebSocket API** - Communication temps réel
 
 ### Backend
+
 - **NestJS 10** - Framework Node.js progressif
 - **WebSocket (ws)** - Serveur WebSocket natif
 - **Groq SDK** - API pour Llama 3.3 70B
@@ -129,9 +135,11 @@ L'agent IA utilise :
 - **FFmpeg** - Conversion audio
 
 ### Base de Données
+
 - **Supabase (PostgreSQL)** - Stockage des appels et transcriptions
 
 ### IA & ML
+
 - **Llama 3.3 70B Versatile** (via Groq) - Modèle de langage
 - **ElevenLabs Scribe v2** - Speech-to-Text
 - **ElevenLabs Multilingual v2** - Text-to-Speech
@@ -148,13 +156,14 @@ Avant de commencer, assurez-vous d'avoir installé :
   npm install -g pnpm@10.7.0
   ```
 - **FFmpeg** - Pour la conversion audio
+
   ```bash
   # macOS
   brew install ffmpeg
-  
+
   # Linux (Ubuntu/Debian)
   sudo apt-get install ffmpeg
-  
+
   # Windows (Chocolatey)
   choco install ffmpeg
   ```
@@ -186,6 +195,7 @@ pnpm install
 ```
 
 Cette commande installera automatiquement les dépendances pour :
+
 - `/apps/web` (Frontend Next.js)
 - `/apps/apip` (Backend NestJS)
 
@@ -207,7 +217,11 @@ Ajoutez les variables suivantes :
 ```env
 # API Configuration
 PORT=3001
-WS_PORT=3002
+WEBSOCKET_PORT=3003
+
+# Redis (Pub/Sub pour temps réel)
+REDIS_HOST=localhost
+REDIS_PORT=6379
 
 # Groq API (LLM)
 GROQ_API_KEY=gsk_votre_cle_groq_ici
@@ -234,7 +248,8 @@ Ajoutez les variables suivantes :
 ```env
 # API Backend
 NEXT_PUBLIC_API_URL=http://localhost:3001
-NEXT_PUBLIC_WS_URL=ws://localhost:3002
+NEXT_PUBLIC_WS_URL=http://localhost:3001  # Socket.IO (ARM/Tracking)
+NEXT_PUBLIC_WS_VOICE_URL=ws://localhost:3003  # WebSocket vocal
 
 # Supabase (Frontend)
 NEXT_PUBLIC_SUPABASE_URL=https://votre-projet.supabase.co
@@ -269,6 +284,27 @@ CREATE TABLE transcriptions (
   text TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- Table triage_reports (Rapports de triage automatique)
+CREATE TABLE triage_reports (
+  triage_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  call_id UUID REFERENCES calls(call_id) UNIQUE,
+  priority TEXT NOT NULL CHECK (priority IN ('P0', 'P1', 'P2', 'P3', 'P5')),
+  summary TEXT NOT NULL,
+  confidence FLOAT,
+  symptoms TEXT[],
+  vital_emergency BOOLEAN DEFAULT FALSE,
+  is_partial BOOLEAN DEFAULT TRUE,
+  nearest_hospital_data JSONB,
+  estimated_arrival_minutes INTEGER,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Index pour performances
+CREATE INDEX idx_triage_call_id ON triage_reports(call_id);
+CREATE INDEX idx_triage_priority ON triage_reports(priority);
+CREATE INDEX idx_calls_created_at ON calls(created_at DESC);
 ```
 
 ---
@@ -282,18 +318,23 @@ CREATE TABLE transcriptions (
 Ouvrez **2 terminaux** :
 
 **Terminal 1 - Backend** :
+
 ```bash
 cd apps/apip
 pnpm run start:dev
 ```
-✅ Backend lancé sur `http://localhost:3001`  
-✅ WebSocket sur `ws://localhost:3002`
+
+✅ API REST + Socket.IO sur `http://localhost:3001`
+✅ WebSocket vocal sur `ws://localhost:3003`
+✅ Redis Pub/Sub sur `localhost:6379`
 
 **Terminal 2 - Frontend** :
+
 ```bash
 cd apps/web
 pnpm run dev
 ```
+
 ✅ Frontend lancé sur `http://localhost:3000`
 
 #### Option 2 : Commandes depuis la racine
@@ -369,6 +410,7 @@ Medlink/
 #### Client → Server
 
 **`start_call`** - Démarrer un nouvel appel
+
 ```json
 {
   "type": "start_call"
@@ -376,12 +418,14 @@ Medlink/
 ```
 
 **Audio Chunk** - Envoyer audio (binary WebM)
+
 ```javascript
 // Binary data (WebM audio)
 websocket.send(audioBlob);
 ```
 
 **`end_call`** - Terminer l'appel
+
 ```json
 {
   "type": "end_call"
@@ -391,6 +435,7 @@ websocket.send(audioBlob);
 #### Server → Client
 
 **`agent_speech`** - Réponse de l'agent
+
 ```json
 {
   "type": "agent_speech",
@@ -402,6 +447,7 @@ websocket.send(audioBlob);
 ```
 
 **`patient_speech`** - Transcription patient
+
 ```json
 {
   "type": "patient_speech",
@@ -412,6 +458,7 @@ websocket.send(audioBlob);
 ```
 
 **`info`** - Messages d'info
+
 ```json
 {
   "type": "info",
@@ -424,6 +471,7 @@ websocket.send(audioBlob);
 ### REST API (Port 3001)
 
 **`GET /`** - Health check
+
 ```bash
 curl http://localhost:3001
 ```
@@ -446,6 +494,7 @@ Cela lance une interface CLI interactive pour tester l'agent ARM sans le fronten
 ### Logs Backend
 
 Les logs incluent :
+
 - 🟢 Connexions/déconnexions WebSocket
 - 👤 Transcriptions patients
 - 🤖 Réponses agent
@@ -499,6 +548,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d
 ### Variables d'Environnement Production
 
 Assurez-vous de configurer :
+
 - `NODE_ENV=production`
 - Clés API sécurisées
 - HTTPS activé

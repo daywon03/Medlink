@@ -1,0 +1,113 @@
+"use client";
+
+import styles from "./page.module.css";
+import Link from "next/link";
+import { useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { getProfileRole, login, logout } from "../../../lib/auth";
+
+
+export default function LoginPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const justRegistered = searchParams.get("registered") === "1";
+  const unauthorized = searchParams.get("unauthorized") === "1";
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    try {
+      setLoading(true);
+      const data = await login(email, password);
+      const userId = data.user?.id;
+      if (!userId) throw new Error("Utilisateur invalide.");
+
+      const role = await getProfileRole(userId);
+      if (role !== "agent_arm") {
+        await logout();
+        setError("Accès refusé: compte non autorisé.");
+        return;
+      }
+      router.push("/arm");
+    } catch (err: any) {
+      setError(err?.message ?? "Erreur de connexion.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+   
+    <div className={styles.page}>
+      <div className={styles.card}>
+        <div className={styles.logoWrap}>
+          <img className={styles.logo} src="/MedLink_logo.png" alt="MedLink" />
+        </div>
+        <div className={styles.header}>
+          <h1 className={styles.title}>Connexion</h1>
+          <p className={styles.sub}>Accéder à votre espace Medlink.</p>
+        </div>
+
+        {justRegistered && (
+          <div className={styles.notice}>
+            Compte créé. Vous pouvez vous connecter.
+          </div>
+        )}
+        {unauthorized && (
+          <div className={styles.notice}>
+            Connexion requise pour accéder à cette page.
+          </div>
+        )}
+
+        <form className={styles.form} onSubmit={handleSubmit}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="login-email">Email</label>
+            <input
+              id="login-email"
+              className={styles.input}
+              type="email"
+              autoComplete="email"
+              placeholder="email@exemple.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="login-password">Mot de passe</label>
+            <input
+              id="login-password"
+              className={styles.input}
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className={styles.actions}>
+            <button className={styles.button} type="submit" disabled={loading}>
+              {loading ? "Connexion..." : "Se connecter"}
+            </button>
+          </div>
+        </form>
+
+        {error && <div className={styles.error}>{error}</div>}
+
+        <div className={styles.links}>
+          <Link className={styles.link} href="/register">Créer un compte</Link>
+          <Link className={styles.link} href="/arm">Aller au dashboard</Link>
+        </div>
+      </div>
+    </div>
+  );
+
+}

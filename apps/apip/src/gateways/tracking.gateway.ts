@@ -2,6 +2,7 @@ import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from
 import { Socket } from 'socket.io';
 import { BaseGateway } from './base.gateway';
 import { RideService } from '../services/ride.service';
+import { SupabaseService } from '../supabase/supabase.service';
 import type { TrackingAssignPayload } from '../types';
 
 /**
@@ -15,7 +16,10 @@ import type { TrackingAssignPayload } from '../types';
   },
 })
 export class TrackingGateway extends BaseGateway {
-  constructor(private readonly rideService: RideService) {
+  constructor(
+    private readonly rideService: RideService,
+    private readonly supabase: SupabaseService
+  ) {
     super('TrackingGateway');
   }
 
@@ -81,10 +85,10 @@ export class TrackingGateway extends BaseGateway {
    * Creates or updates a ride and broadcasts to tracking clients
    */
   @SubscribeMessage('tracking:assign')
-  handleTrackingAssign(
+  async handleTrackingAssign(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: TrackingAssignPayload,
-  ): void {
+  ): Promise<void> {
     try {
       this.logger.log(`🚑 Tracking assignment for token: ${payload.token}`);
 
@@ -101,19 +105,16 @@ export class TrackingGateway extends BaseGateway {
         token: payload.token,
         status: payload.status || 'assigned',
         ambulance: payload.ambulance || { label: 'AMB-?' },
-        destinationHospital: payload.destinationHospital || {
-          name: 'Hôpital Européen Georges-Pompidou',
-          address: '20 Rue Leblanc, 75015 Paris',
-          lat: 48.8414,
-          lng: 2.279,
-        },
+        // ✅ Récupérer hôpital depuis BDD au lieu de hardcodé
+        destinationHospital: payload.destinationHospital || await this.getHospitalFromDB(payload.token),
         incident: payload.incident || { label: '—', lat: 0, lng: 0 },
         ambulancePos: payload.ambulancePos || {
           lat: payload.incident?.lat || 0,
           lng: payload.incident?.lng || 0,
           updatedAt: new Date().toISOString(),
         },
-        etaMinutes: payload.etaMinutes,
+        // ✅ Récupérer ETA depuis BDD
+        etaMinutes: payload.etaMinutes || await this.getETAFromDB(payload.token),
         expiresAt: payload.expiresAt || new Date(Date.now() + 30 * 60000).toISOString(),
       };
 
@@ -180,5 +181,61 @@ export class TrackingGateway extends BaseGateway {
         error: (error as Error).message,
       });
     }
+  }
+
+  /**
+   * 🆕 Récupérer hôpital depuis BDD
+   */
+  private async getHospitalFromDB(callId: string) {
+    try {
+      const { data, error } = await this.supabase['supabase']
+        .from('triage_reports')
+        .select('nearest_hospital_data')
+        .eq('call_id', callId)
+        .single();
+
+      if (!error && data?.nearest_hospital_data) {
+        const hospital = data.nearest_hospital_data;
+        this.logger.log(`🏥 Hôpital BDD: ${hospital.name}`);
+        return {
+          name: hospital.name,
+          address: hospital.address,
+          lat: hospital.lat,
+          lng: hospital.lng
+        };
+      }
+    } catch (error) {
+      this.logger.warn(`Could not fetch hospital from DB: ${error.message}`);
+    }
+
+    // Fallback
+    return {
+      name: 'Hôpital le plus proche',
+      address: 'En cours de localisation',
+      lat: 48.8566,
+      lng: 2.3522
+    };
+  }
+
+  /**
+   * 🆕 Récupérer ETA depuis BDD
+   */
+  private async getETAFromDB(callId: string): Promise<number | undefined> {
+    try {
+      const { data, error } = await this.supabase['supabase']
+        .from('triage_reports')
+        .select('estimated_arrival_minutes')
+        .eq('call_id', callId)
+        .single();
+
+      if (!error && data?.estimated_arrival_minutes) {
+        this.logger.log(`⏱️ ETA BDD: ${data.estimated_arrival_minutes}min`);
+        return data.estimated_arrival_minutes;
+      }
+    } catch (error) {
+      this.logger.warn(`Could not fetch ETA from DB: ${error.message}`);
+    }
+
+    return undefined;
   }
 }

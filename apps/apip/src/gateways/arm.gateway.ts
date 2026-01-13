@@ -2,6 +2,7 @@ import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from
 import { Socket } from 'socket.io';
 import { BaseGateway } from './base.gateway';
 import type { ArmActionPayload } from '../types';
+import { RedisService } from '../services/redis.service';
 
 /**
  * ARM Gateway - Handles WebSocket events for the ARM console (/arm)
@@ -14,8 +15,30 @@ import type { ArmActionPayload } from '../types';
   },
 })
 export class ArmGateway extends BaseGateway {
-  constructor() {
+  constructor(private readonly redis: RedisService) {
     super('ArmGateway');
+
+    // 👂 Subscribe to Redis arm:updates channel
+    this.redis.subscribe('arm:updates', (data: any) => {
+      this.logger.log(`📡 Received from Redis: ${data.callId}`);
+
+      // 📡 Broadcast to ALL ARM dashboard clients via Socket.IO
+      this.broadcast('call:update', data);
+
+      this.logger.log(`✅ Broadcasted to ARM dashboards: ${data.callId}`);
+    });
+
+    // 🆕 Subscribe to Redis arm:geolocation channel (async background search results)
+    this.redis.subscribe('arm:geolocation', (data: any) => {
+      this.logger.log(`📍 Geolocation received from Redis: ${data.callId}`);
+
+      // 📡 Broadcast geolocation update to ARM dashboards
+      this.broadcast('call:geolocation', data);
+
+      this.logger.log(`✅ Geolocation broadcasted: ${data.nearestHospital?.name || 'No hospital'}`);
+    });
+
+    this.logger.log('✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation channels');
   }
 
   protected onConnection(client: Socket): void {
