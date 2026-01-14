@@ -1,9 +1,14 @@
-import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
-import { Socket } from 'socket.io';
-import { BaseGateway } from './base.gateway';
-import { RideService } from '../services/ride.service';
-import { SupabaseService } from '../supabase/supabase.service';
-import type { TrackingAssignPayload } from '../types';
+import {
+  WebSocketGateway,
+  SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
+} from "@nestjs/websockets";
+import { Socket } from "socket.io";
+import { BaseGateway } from "./base.gateway";
+import { RideService } from "../services/ride.service";
+import { SupabaseService } from "../supabase/supabase.service";
+import type { TrackingAssignPayload } from "../types";
 
 /**
  * Tracking Gateway - Handles WebSocket events for public tracking pages (/t/[token])
@@ -11,16 +16,18 @@ import type { TrackingAssignPayload } from '../types';
  */
 @WebSocketGateway({
   cors: {
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-    credentials: true
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+      "http://localhost:3000",
+    ],
+    credentials: true,
   },
 })
 export class TrackingGateway extends BaseGateway {
   constructor(
     private readonly rideService: RideService,
-    private readonly supabase: SupabaseService
+    private readonly supabase: SupabaseService,
   ) {
-    super('TrackingGateway');
+    super("TrackingGateway");
   }
 
   protected onConnection(client: Socket): void {
@@ -32,17 +39,19 @@ export class TrackingGateway extends BaseGateway {
    * Handle tracking request from citizen
    * Returns the current state of their ride
    */
-  @SubscribeMessage('tracking:request')
+  @SubscribeMessage("tracking:request")
   handleTrackingRequest(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { token: string },
   ): void {
     try {
-      this.logger.log(`🔍 Tracking request from client for token: ${payload?.token}`);
+      this.logger.log(
+        `🔍 Tracking request from client for token: ${payload?.token}`,
+      );
 
       if (!payload?.token) {
-        this.emitToClient(client, 'tracking:error', {
-          error: 'Token is required',
+        this.emitToClient(client, "tracking:error", {
+          error: "Token is required",
         });
         return;
       }
@@ -52,8 +61,8 @@ export class TrackingGateway extends BaseGateway {
 
       if (!ride) {
         this.logger.warn(`⚠️ Ride not found for token: ${payload.token}`);
-        this.emitToClient(client, 'tracking:error', {
-          error: 'Ride not found or expired',
+        this.emitToClient(client, "tracking:error", {
+          error: "Ride not found or expired",
           token: payload.token,
         });
         return;
@@ -62,19 +71,19 @@ export class TrackingGateway extends BaseGateway {
       // Check if expired
       if (new Date(ride.expiresAt).getTime() < Date.now()) {
         this.logger.warn(`⏰ Ride expired for token: ${payload.token}`);
-        this.emitToClient(client, 'tracking:error', {
-          error: 'Ride has expired',
+        this.emitToClient(client, "tracking:error", {
+          error: "Ride has expired",
           token: payload.token,
         });
         return;
       }
 
       // Send current ride state to the client
-      this.emitToClient(client, 'tracking:assign', ride);
+      this.emitToClient(client, "tracking:assign", ride);
       this.logger.log(`✅ Sent tracking data for token: ${payload.token}`);
     } catch (error) {
-      this.handleError(error as Error, 'handleTrackingRequest');
-      this.emitToClient(client, 'tracking:error', {
+      this.handleError(error as Error, "handleTrackingRequest");
+      this.emitToClient(client, "tracking:error", {
         error: (error as Error).message,
       });
     }
@@ -84,7 +93,7 @@ export class TrackingGateway extends BaseGateway {
    * Handle tracking assignment from ARM
    * Creates or updates a ride and broadcasts to tracking clients
    */
-  @SubscribeMessage('tracking:assign')
+  @SubscribeMessage("tracking:assign")
   async handleTrackingAssign(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: TrackingAssignPayload,
@@ -94,8 +103,8 @@ export class TrackingGateway extends BaseGateway {
 
       // Validate payload
       if (!payload.token) {
-        this.emitToClient(client, 'tracking:error', {
-          error: 'Token is required',
+        this.emitToClient(client, "tracking:error", {
+          error: "Token is required",
         });
         return;
       }
@@ -103,37 +112,43 @@ export class TrackingGateway extends BaseGateway {
       // Create the ride object
       const ride = {
         token: payload.token,
-        status: payload.status || 'assigned',
-        ambulance: payload.ambulance || { label: 'AMB-?' },
+        status: payload.status || "assigned",
+        ambulance: payload.ambulance || { label: "AMB-?" },
         // ✅ Récupérer hôpital depuis BDD au lieu de hardcodé
-        destinationHospital: payload.destinationHospital || await this.getHospitalFromDB(payload.token),
-        incident: payload.incident || { label: '—', lat: 0, lng: 0 },
+        destinationHospital:
+          payload.destinationHospital ||
+          (await this.getHospitalFromDB(payload.token)),
+        incident: payload.incident || { label: "—", lat: 0, lng: 0 },
         ambulancePos: payload.ambulancePos || {
           lat: payload.incident?.lat || 0,
           lng: payload.incident?.lng || 0,
           updatedAt: new Date().toISOString(),
         },
         // ✅ Récupérer ETA depuis BDD
-        etaMinutes: payload.etaMinutes || await this.getETAFromDB(payload.token),
-        expiresAt: payload.expiresAt || new Date(Date.now() + 30 * 60000).toISOString(),
+        etaMinutes:
+          payload.etaMinutes || (await this.getETAFromDB(payload.token)),
+        expiresAt:
+          payload.expiresAt || new Date(Date.now() + 30 * 60000).toISOString(),
       };
 
       // Store in service
       this.rideService.upsertRide(ride);
 
       // Broadcast to all tracking clients watching this token
-      this.broadcast('tracking:assign', ride);
+      this.broadcast("tracking:assign", ride);
 
       // Acknowledge to sender
-      this.emitToClient(client, 'tracking:assign:ack', {
+      this.emitToClient(client, "tracking:assign:ack", {
         success: true,
         token: payload.token,
       });
 
-      this.logger.log(`✅ Tracking assignment broadcast for token: ${payload.token}`);
+      this.logger.log(
+        `✅ Tracking assignment broadcast for token: ${payload.token}`,
+      );
     } catch (error) {
-      this.handleError(error as Error, 'handleTrackingAssign');
-      this.emitToClient(client, 'tracking:error', {
+      this.handleError(error as Error, "handleTrackingAssign");
+      this.emitToClient(client, "tracking:error", {
         error: (error as Error).message,
       });
     }
@@ -142,7 +157,7 @@ export class TrackingGateway extends BaseGateway {
   /**
    * Handle ride updates (position, status, ETA)
    */
-  @SubscribeMessage('ride:update')
+  @SubscribeMessage("ride:update")
   handleRideUpdate(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: any,
@@ -151,8 +166,8 @@ export class TrackingGateway extends BaseGateway {
       this.logger.log(`📍 Ride update for token: ${payload.token}`);
 
       if (!payload.token) {
-        this.emitToClient(client, 'tracking:error', {
-          error: 'Token is required',
+        this.emitToClient(client, "tracking:error", {
+          error: "Token is required",
         });
         return;
       }
@@ -172,12 +187,12 @@ export class TrackingGateway extends BaseGateway {
       }
 
       // Broadcast update to all clients
-      this.broadcast('ride:update', payload);
+      this.broadcast("ride:update", payload);
 
       this.logger.log(`✅ Ride update broadcast for token: ${payload.token}`);
     } catch (error) {
-      this.handleError(error as Error, 'handleRideUpdate');
-      this.emitToClient(client, 'tracking:error', {
+      this.handleError(error as Error, "handleRideUpdate");
+      this.emitToClient(client, "tracking:error", {
         error: (error as Error).message,
       });
     }
@@ -188,22 +203,24 @@ export class TrackingGateway extends BaseGateway {
    */
   private async getHospitalFromDB(callId: string) {
     try {
-      const { data, error } = await this.supabase['supabase']
-        .from('triage_reports')
-        .select('nearest_hospital_data')
-        .eq('call_id', callId)
+      const { data, error } = await this.supabase["supabase"]
+        .from("triage_reports")
+        .select("nearest_hospital_data")
+        .eq("call_id", callId)
         .single();
 
       if (!error && data?.nearest_hospital_data) {
         const rawHospital = data.nearest_hospital_data;
         const hospital =
-          typeof rawHospital === 'string' ? JSON.parse(rawHospital) : rawHospital;
+          typeof rawHospital === "string"
+            ? JSON.parse(rawHospital)
+            : rawHospital;
         this.logger.log(`🏥 Hôpital BDD: ${hospital.name}`);
         return {
           name: hospital.name,
           address: hospital.address,
           lat: Number(hospital.lat),
-          lng: Number(hospital.lng)
+          lng: Number(hospital.lng),
         };
       }
     } catch (error) {
@@ -212,10 +229,10 @@ export class TrackingGateway extends BaseGateway {
 
     // Fallback
     return {
-      name: 'Hôpital le plus proche',
-      address: 'En cours de localisation',
+      name: "Hôpital le plus proche",
+      address: "En cours de localisation",
       lat: 48.8566,
-      lng: 2.3522
+      lng: 2.3522,
     };
   }
 
@@ -224,10 +241,10 @@ export class TrackingGateway extends BaseGateway {
    */
   private async getETAFromDB(callId: string): Promise<number | undefined> {
     try {
-      const { data, error } = await this.supabase['supabase']
-        .from('triage_reports')
-        .select('estimated_arrival_minutes')
-        .eq('call_id', callId)
+      const { data, error } = await this.supabase["supabase"]
+        .from("triage_reports")
+        .select("estimated_arrival_minutes")
+        .eq("call_id", callId)
         .single();
 
       if (!error && data?.estimated_arrival_minutes) {

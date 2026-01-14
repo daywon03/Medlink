@@ -58,6 +58,7 @@ export default function TrackMap({
             map: mapRef.current,
             title: incident.label,
             icon: createPinIcon(maps, "#ef4444"),
+            zIndex: 100
           });
           const info = new maps.InfoWindow({ content: createInfoWindowContent(`📍 ${incident.label}`) });
           incidentMarkerRef.current.addListener("click", () => info.open({ anchor: incidentMarkerRef.current, map: mapRef.current }));
@@ -135,11 +136,35 @@ export default function TrackMap({
     ambMarkerRef.current.setPosition({ lat: ambulance.lat, lng: ambulance.lng });
   }, [ambulance.lat, ambulance.lng]);
 
+  // update markers
   useEffect(() => {
     if (!mapRef.current || !incidentMarkerRef.current || !hospitalMarkerRef.current) return;
-    incidentMarkerRef.current.setPosition({ lat: incident.lat, lng: incident.lng });
+
+    const isDefaultParis = (Math.abs(incident.lat - 48.8566) < 0.0001 && Math.abs(incident.lng - 2.3522) < 0.0001);
+
+    if (isDefaultParis && incident.label && !incident.label.includes("Paris") && window.google) {
+      // 🔄 Client-side fallback: Geocode address if backend sent default Paris
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ address: incident.label }, (results: any, status: string) => {
+        if (status === "OK" && results?.[0]?.geometry?.location) {
+          const loc = results[0].geometry.location;
+          incidentMarkerRef.current.setPosition(loc);
+          // Also update route if needed
+          if (directionsServiceRef.current && directionsRendererRef.current) {
+             // Re-calc route with new point
+             // For now just update marker to visually correct it
+          }
+        } else {
+          // Fallback failed, keep props
+          incidentMarkerRef.current.setPosition({ lat: incident.lat, lng: incident.lng });
+        }
+      });
+    } else {
+       incidentMarkerRef.current.setPosition({ lat: incident.lat, lng: incident.lng });
+    }
+
     hospitalMarkerRef.current.setPosition({ lat: hospital.lat, lng: hospital.lng });
-  }, [incident.lat, incident.lng, hospital.lat, hospital.lng]);
+  }, [incident.lat, incident.lng, incident.label, hospital.lat, hospital.lng]);
 
   useEffect(() => {
     if (!directionsServiceRef.current || !directionsRendererRef.current || !mapRef.current) return;

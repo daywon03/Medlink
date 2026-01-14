@@ -48,7 +48,8 @@ export default function TrackingClient({ token }: { token: string }) {
     (async () => {
       try {
         setError("");
-        const res = await fetch(`/api/public/ride/${token}`, { cache: "no-store" });
+        const NEXT_PUBLIC_API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001').replace(/^ws/, 'http');
+        const res = await fetch(`${NEXT_PUBLIC_API_URL}/api/public/ride/${token}`, { cache: "no-store" });
         if (!res.ok) throw new Error("Lien invalide ou expiré.");
         const data = (await res.json()) as PublicRide;
         if (!cancelled) setRide(data);
@@ -72,7 +73,7 @@ export default function TrackingClient({ token }: { token: string }) {
         if (cancelled) return;
 
         // Connect directly to NestJS backend
-        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3002";
+        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3001";
         s = io(wsUrl);
 
         s.on("connect", () => setSocketOk(true));
@@ -103,6 +104,7 @@ export default function TrackingClient({ token }: { token: string }) {
               status: evt.status ?? prev.status,
             };
           });
+          setError(""); // ✅ Clear error if socket recovers the data
         });
 
         // Listen for assignments from ARM console and map to PublicRide
@@ -136,6 +138,7 @@ export default function TrackingClient({ token }: { token: string }) {
           console.log("[tracking:assign] received:", evt, "mapped:", mapped);
 
           setRide((prev) => ({ ...(prev ?? {}), ...mapped } as PublicRide));
+          setError(""); // ✅ Clear error if socket recovers the data
         });
       } catch (e) {
         console.error("socket init error", e);

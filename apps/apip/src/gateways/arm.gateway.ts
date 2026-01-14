@@ -1,8 +1,14 @@
-import { WebSocketGateway, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
-import { Socket } from 'socket.io';
-import { BaseGateway } from './base.gateway';
-import type { ArmActionPayload } from '../types';
-import { RedisService } from '../services/redis.service';
+import {
+  WebSocketGateway,
+  SubscribeMessage,
+  MessageBody,
+  ConnectedSocket,
+} from "@nestjs/websockets";
+import { Socket } from "socket.io";
+import { BaseGateway } from "./base.gateway";
+import type { ArmActionPayload } from "../types";
+import { RedisService } from "../services/redis.service";
+import { CallsService } from "../services/calls.service";
 
 /**
  * ARM Gateway - Handles WebSocket events for the ARM console (/arm)
@@ -10,41 +16,50 @@ import { RedisService } from '../services/redis.service';
  */
 @WebSocketGateway({
   cors: {
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-    credentials: true
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || [
+      "http://localhost:3000",
+    ],
+    credentials: true,
   },
 })
 export class ArmGateway extends BaseGateway {
-  constructor(private readonly redis: RedisService) {
-    super('ArmGateway');
+  constructor(
+    private readonly redis: RedisService,
+    private readonly callsService: CallsService
+  ) {
+    super("ArmGateway");
 
     // 👂 Subscribe to Redis arm:updates channel
-    this.redis.subscribe('arm:updates', (data: any) => {
+    this.redis.subscribe("arm:updates", (data: any) => {
       this.logger.log(`📡 Received from Redis: ${data.callId}`);
 
       // 📡 Broadcast to ALL ARM dashboard clients via Socket.IO
-      this.broadcast('call:update', data);
+      this.broadcast("call:update", data);
 
       this.logger.log(`✅ Broadcasted to ARM dashboards: ${data.callId}`);
     });
 
     // 🆕 Subscribe to Redis arm:geolocation channel (async background search results)
-    this.redis.subscribe('arm:geolocation', (data: any) => {
+    this.redis.subscribe("arm:geolocation", (data: any) => {
       this.logger.log(`📍 Geolocation received from Redis: ${data.callId}`);
 
       // 📡 Broadcast geolocation update to ARM dashboards
-      this.broadcast('call:geolocation', data);
+      this.broadcast("call:geolocation", data);
 
-      this.logger.log(`✅ Geolocation broadcasted: ${data.nearestHospital?.name || 'No hospital'}`);
+      this.logger.log(
+        `✅ Geolocation broadcasted: ${data.nearestHospital?.name || "No hospital"}`,
+      );
     });
 
-    this.logger.log('✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation channels');
+    this.logger.log(
+      "✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation channels",
+    );
   }
 
   protected onConnection(client: Socket): void {
     super.onConnection(client);
     // Send ARM-specific connection event
-    this.emitToClient(client, 'arm:connected', {
+    this.emitToClient(client, "arm:connected", {
       ok: true,
       at: new Date().toISOString(),
     });
@@ -53,29 +68,41 @@ export class ArmGateway extends BaseGateway {
   /**
    * Handle ARM operator actions (assign ambulance, edit incident, notify citizen)
    */
-  @SubscribeMessage('arm:action')
-  handleArmAction(
+  @SubscribeMessage("arm:action")
+  async handleArmAction(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: ArmActionPayload,
-  ): void {
+  ): Promise<void> {
     try {
       this.logger.log(`📋 ARM action received: ${payload.type}`);
 
+      // 🆕 Persist assignment using CallsService (Clean)
+      if (payload.type === 'assign_ambulance') {
+        const p = payload as any; // Still casting payload but logic is safe in service
+        if (p.callId && p.ambulanceTeam) {
+          await this.callsService.assignAmbulance({
+            callId: p.callId,
+            ambulanceTeam: p.ambulanceTeam,
+            trackingToken: p.trackingToken
+          });
+        }
+      }
+
       // Broadcast the incident update to all connected clients (including other ARM operators)
-      this.broadcast('incident:update', {
-        type: 'action',
+      this.broadcast("incident:update", {
+        type: "action",
         payload,
         at: new Date().toISOString(),
       });
 
       // Acknowledge back to the sender
-      this.emitToClient(client, 'arm:action:ack', {
+      this.emitToClient(client, "arm:action:ack", {
         success: true,
         type: payload.type,
       });
     } catch (error) {
-      this.handleError(error as Error, 'handleArmAction');
-      this.emitToClient(client, 'arm:action:error', {
+      this.handleError(error as Error, "handleArmAction");
+      this.emitToClient(client, "arm:action:error", {
         error: (error as Error).message,
       });
     }
@@ -85,7 +112,7 @@ export class ArmGateway extends BaseGateway {
    * Handle tracking request from ARM console
    * This is called when ARM wants to get current state for a specific incident
    */
-  @SubscribeMessage('tracking:request')
+  @SubscribeMessage("tracking:request")
   handleTrackingRequest(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: { token: string },
@@ -95,11 +122,11 @@ export class ArmGateway extends BaseGateway {
 
       // Emit back to the requesting client
       // The actual data will be provided by TrackingGateway
-      this.emitToClient(client, 'tracking:request:received', {
+      this.emitToClient(client, "tracking:request:received", {
         token: payload.token,
       });
     } catch (error) {
-      this.handleError(error as Error, 'handleTrackingRequest');
+      this.handleError(error as Error, "handleTrackingRequest");
     }
   }
 
@@ -109,6 +136,6 @@ export class ArmGateway extends BaseGateway {
    */
   broadcastTrackingAssignment(data: any): void {
     this.logger.log(`📡 Broadcasting tracking assignment: ${data.token}`);
-    this.broadcast('tracking:assign', data);
+    this.broadcast("tracking:assign", data);
   }
 }

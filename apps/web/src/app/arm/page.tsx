@@ -17,22 +17,30 @@ type Hospital = {
   type?: string;
 };
 
-type Incident = {
+const ARM_WS_URL = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3001";
+
+interface Incident {
   id: string;
   createdAt: string;
-  createdAtRaw?: string;
+  createdAtRaw: string;
   updatedAtRaw?: string;
-  status: IncidentStatus;
+  status: 'nouveau' | 'en_cours' | 'terminé';
   priority: 1 | 2 | 3 | 4 | 5;
   title: string;
   locationLabel: string;
   lat: number;
   lng: number;
   symptoms: string[];
-  notes?: string;
-  nearestHospital?: Hospital | null;
+  notes: string;
+  nearestHospital?: Hospital;
   eta?: number | null;
-};
+  isActive?: boolean;
+  // 🆕 Assignment fields
+  assignedTeam?: string;
+  trackingToken?: string;
+  assignmentStatus?: string;
+  logs?: string;
+}
 
 const MapPanel = dynamic(() => import("./ui/MapPanel"), { ssr: false });
 const TriageList = dynamic(() => import("./TriageList"), { ssr: false });
@@ -171,11 +179,19 @@ export default function ArmPage() {
       if (!json.success) {
         throw new Error(json.message || "Aucun hôpital trouvé");
       }
-      const hospital = normalizeHospital(json.nearestHospital);
-      if (!hospital) {
-        throw new Error("Données hôpital invalides");
+      const hospitals = (json.hospitals || []).map(normalizeHospital).filter(Boolean);
+      if (hospitals.length === 0) {
+        // Fallback to single result if list empty (backward compatibility)
+        const single = normalizeHospital(json.nearestHospital);
+        if (single) hospitals.push(single);
       }
-      setHospitalResult(hospital);
+
+      if (hospitals.length === 0) {
+        throw new Error("Aucun hôpital trouvé");
+      }
+
+      setHospitalResults(hospitals); // Store list
+      setHospitalResult(hospitals[0]); // Default to first
       setHospitalEta(typeof json.eta === "number" ? json.eta : null);
     } catch (err: any) {
       setHospitalError(err?.message ?? "Erreur de recherche d’hôpital");
@@ -204,6 +220,7 @@ export default function ArmPage() {
           : i
       )
     );
+
     incidentsRef.current = incidentsRef.current.map((i) =>
       i.id === incident.id
         ? {
@@ -213,6 +230,20 @@ export default function ArmPage() {
             notes: `${i.notes ?? ""}${noteSuffix}`,
           }
         : i
+    );
+
+    // 🆕 Update also closed incidents if present
+    setClosedIncidents((prev) =>
+      prev.map((i) =>
+        i.id === incident.id
+          ? {
+              ...i,
+              nearestHospital: hospital,
+              eta: eta ?? i.eta ?? null,
+              notes: `${i.notes ?? ""}${noteSuffix}`,
+            }
+          : i
+      )
     );
 
     emitAction("notify_hospital", {
@@ -285,6 +316,7 @@ export default function ArmPage() {
   const [hospitalLoading, setHospitalLoading] = useState(false);
   const [hospitalError, setHospitalError] = useState("");
   const [hospitalResult, setHospitalResult] = useState<Hospital | null>(null);
+  const [hospitalResults, setHospitalResults] = useState<Hospital[]>([]); // 🆕 List of candidates
   const [hospitalEta, setHospitalEta] = useState<number | null>(null);
   const [hospitalSaved, setHospitalSaved] = useState(false);
   useEffect(() => {
@@ -306,7 +338,7 @@ export default function ArmPage() {
       if (cancelled) return;
 
       // Connect directly to NestJS backend
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3002";
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "http://localhost:3001";
       s = io(wsUrl);
 
       s.on("connect", () => console.log("socket connected", s?.id));
@@ -366,11 +398,22 @@ export default function ArmPage() {
             const updated = [...prev];
             const priorityMap: Record<string, 1 | 2 | 3 | 4 | 5> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
 
+            // 🆕 Parsing intelligent du résumé structuré
+            const rawSummary = data.summary || "";
+            const summaryLines = rawSummary.split('\n').map((l: string) => l.trim()).filter(Boolean);
+            const proposedTitle = summaryLines.length > 0 ? summaryLines[0].substring(0, 60) : "";
+
+            // Logic: Keep existing title if it's already specific, unless it's a generic placeholder
+            const currentTitle = updated[index].title;
+            const isPlaceholder = currentTitle.includes("Nouveau") || currentTitle.includes("Appel") || currentTitle === "—";
+
             updated[index] = {
               ...updated[index],
-              title: data.summary?.substring(0, 60) || updated[index].title,
+              // Use proposed title only if current is placeholder, otherwise keep existing
+              title: (isPlaceholder && proposedTitle) ? proposedTitle : currentTitle,
               priority: data.priority ? (priorityMap[data.priority] ?? updated[index].priority) : updated[index].priority,
-              notes: data.summary || updated[index].notes,
+              notes: rawSummary, // Notes = le texte complet (cumulatif)
+              locationLabel: data.extractedAddress || updated[index].locationLabel, // 🆕 Update location if extracted
               status: data.isPartial ? 'en_cours' : 'nouveau'
             };
 
@@ -439,6 +482,11 @@ export default function ArmPage() {
           ...call,
           nearestHospital: normalizeHospital(call.nearestHospital),
           eta: typeof call.eta === "number" ? call.eta : call.eta != null ? Number(call.eta) : null,
+          // 🆕 Map persisted assignment data
+          notes: call.assignedTeam
+            ? (call.notes || "") + `\nPop: ${call.assignedTeam}` + (call.trackingToken ? ` (Token: ${call.trackingToken})` : "")
+            : call.notes,
+          logs: call.logs || ""
         }));
         setIncidents(mapped);
         incidentsRef.current = mapped;
@@ -464,7 +512,7 @@ export default function ArmPage() {
   async function fetchClosedIncidents(opts?: { silent?: boolean }) {
     if (!opts?.silent) setClosedLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/incidents/closed');
+      const res = await fetch('http://localhost:3001/api/calls/closed');
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setClosedIncidents(json.data);
@@ -949,6 +997,21 @@ export default function ArmPage() {
                 <div className="noteText">{selected?.notes ?? "Aucune note"}</div>
               </div>
 
+              <div className="card">
+                <div className="cardHead">
+                  <div className="cardTitle">Journal de conversation (Transcript)</div>
+                </div>
+                <div className="cardBody">
+                  {selected?.logs ? (
+                    <div style={{ whiteSpace: "pre-wrap", maxHeight: "200px", overflowY: "auto", fontSize: "0.85rem", color: "#475569" }}>
+                      {selected.logs}
+                    </div>
+                  ) : (
+                    <div className="muted small">Aucun transcript disponible.</div>
+                  )}
+                </div>
+              </div>
+
               <div className="btnRow">
                 <button className="btn btnBlue" onClick={() => setOpenAssign(true)} disabled={!selected}>
                   🚑 Assigner
@@ -1083,11 +1146,38 @@ export default function ArmPage() {
             <div className="muted" style={{ color: "#f87171" }}>
               {hospitalError}
             </div>
-          ) : hospitalResult ? (
-            <div style={{ padding: "0.75rem", borderRadius: "0.75rem", background: "rgba(15, 23, 42, 0.4)", border: "1px solid rgba(148, 163, 184, 0.2)" }}>
-              <div className="strong">{hospitalResult.name}</div>
-              {hospitalResult.address && <div className="muted small">{hospitalResult.address}</div>}
-              {hospitalEta != null && <div className="muted small">ETA estimée: {hospitalEta} min</div>}
+          ) : hospitalResults.length > 0 ? (
+            <div className="hospitalList" style={{ display: "flex", flexDirection: "column", gap: "0.5rem", maxHeight: "300px", overflowY: "auto" }}>
+              {hospitalResults.map((h, idx) => (
+                <div
+                  key={h.id || idx}
+                  onClick={() => {
+                     setHospitalResult(h);
+                     // Recalculer ETA théorique (simple ratio) ou garder celui du backend s'il correspond
+                     // Le backend a renvoyé l'ETA pour le "nearest" (index 0). Pour les autres, on l'a dans 'distance' mais pas 'eta' direct
+                     // On peut estimer: 2min + dist/40kmh*60
+                     const est = Math.ceil(((h.distance ?? 0) / 40) * 60) + 2;
+                     setHospitalEta(est);
+                  }}
+                  style={{
+                    padding: "0.75rem",
+                    borderRadius: "0.5rem",
+                    background: hospitalResult?.id === h.id ? "rgba(59, 130, 246, 0.2)" : "rgba(15, 23, 42, 0.4)",
+                    border: `1px solid ${hospitalResult?.id === h.id ? "rgba(59, 130, 246, 0.5)" : "rgba(148, 163, 184, 0.2)"}`,
+                    cursor: "pointer",
+                    transition: "all 0.2s"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div className="strong" style={{ color: hospitalResult?.id === h.id ? "#60a5fa" : "inherit" }}>{h.name}</div>
+                    <div className="muted small">{Math.ceil(((h.distance ?? 0) / 40) * 60) + 2} min</div>
+                  </div>
+                  {h.address && <div className="muted small">{h.address}</div>}
+                  <div className="muted small" style={{ fontSize: "0.75rem", marginTop: "0.25rem" }}>
+                    {h.distance ?? "?"} km • {h.type === 'hospital' ? 'Hôpital' : 'Centre'}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="muted">Aucun résultat pour l’instant.</div>

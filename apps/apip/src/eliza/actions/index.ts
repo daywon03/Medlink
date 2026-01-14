@@ -3,17 +3,13 @@
  * Export all custom actions for the multi-agent system
  */
 
-import { collectInfoAction } from './collect-info.action';
+import { collectInfoAction } from "./collect-info.action";
 
 // Export all actions
-export const actions = [
-  collectInfoAction,
-];
+export const actions = [collectInfoAction];
 
 // Export individual actions
-export {
-  collectInfoAction,
-};
+export { collectInfoAction };
 
 // Export action types
-export type { ActionResult, CollectInfoAction } from './collect-info.action';
+export type { ActionResult, CollectInfoAction } from "./collect-info.action";

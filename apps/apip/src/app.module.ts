@@ -1,38 +1,48 @@
-import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
-import { TranscriptionGateway } from './ws/transcription.gateway';
-import { ArmGateway } from './gateways/arm.gateway';
-import { TrackingGateway } from './gateways/tracking.gateway';
-import { SupabaseService } from './supabase/supabase.service';
-import { RideService } from './services/ride.service';
-import { GeocodingService } from './services/geocoding.service';
-import { ElevenLabsRealtimeService } from './elevenlabs/elevenlabs-realtime.service'; // ElevenLabs STT
-import { ElizaArmService } from './eliza/eliza-arm.service';
-import { ElevenLabsTTSService } from './elevenlabs/elevenlabs-tts.service';
-import { TriageController } from './controllers/triage.controller';
-import { CallsController } from './controllers/calls.controller';
-import { IncidentsController } from './controllers/incidents.controller';
-import { HospitalsController } from './controllers/hospitals.controller';
-import { RedisService } from './services/redis.service';
+import { Module } from "@nestjs/common";
+import { AppController } from "./app.controller";
+import { AppService } from "./app.service";
+import { TranscriptionGateway } from "./ws/transcription.gateway";
+import { ArmGateway } from "./gateways/arm.gateway";
+import { TrackingGateway } from "./gateways/tracking.gateway";
+import { SupabaseService } from "./supabase/supabase.service";
+import { RideService } from "./services/ride.service";
+import { GeocodingService } from "./services/geocoding.service";
+import { ElevenLabsRealtimeService } from "./elevenlabs/elevenlabs-realtime.service"; // ElevenLabs STT
+import { ElizaArmService } from "./eliza/eliza-arm.service";
+import { ElevenLabsTTSService } from "./elevenlabs/elevenlabs-tts.service";
+import { TriageController } from "./controllers/triage.controller";
+import { CallsController } from "./controllers/calls.controller";
+import { IncidentsController } from "./controllers/incidents.controller";
+import { HospitalsController } from "./controllers/hospitals.controller";
+import { RideController } from "./controllers/ride.controller";
+import { RedisService } from "./services/redis.service";
+import { CallsService } from "./services/calls.service";
 
 @Module({
   imports: [],
-  controllers: [AppController, TriageController, CallsController, IncidentsController, HospitalsController],
+  controllers: [
+    AppController,
+    TriageController,
+    CallsController,
+    IncidentsController,
+    HospitalsController,
+    RideController,
+  ],
   providers: [
     AppService,
     // WebSocket Gateways
-    TranscriptionGateway,  // /voice (existing)
-    ArmGateway,            // /arm (new)
-    TrackingGateway,       // /t/[token] (new)
+    TranscriptionGateway, // /voice (existing)
+    ArmGateway, // /arm (new)
+    TrackingGateway, // /t/[token] (new)
     // Services
     SupabaseService,
     RideService,
     GeocodingService,
-    ElevenLabsRealtimeService,  // ElevenLabs STT (Scribe Realtime v2)
-    ElevenLabsTTSService,       // ElevenLabs TTS
+    ElevenLabsRealtimeService, // ElevenLabs STT (Scribe Realtime v2)
+    ElevenLabsTTSService, // ElevenLabs TTS
     ElizaArmService,
-    RedisService,               // Redis Pub/Sub
+    RedisService, // Redis Pub/Sub
+    CallsService,
   ],
 })
-export class AppModule { }
+export class AppModule {}
