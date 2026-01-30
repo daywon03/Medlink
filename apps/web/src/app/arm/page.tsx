@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import io, { Socket } from "socket.io-client";
 import MedlinkLayout from "../ui/MedlinkLayout";
 import { jsPDF } from "jspdf";
+import Link from "next/link";
 
 type IncidentStatus = "nouveau" | "en_cours" | "clos";
 type Incident = {
@@ -535,9 +536,11 @@ export default function ArmPage() {
       requireAuth
       actions={
         <>
-          <button className="btn btnGhost" onClick={downloadClosedIncidentsPdf}>
-            Historique
-          </button>
+          <Link href="/arm/history">
+            <button className="btn btnGhost">
+              Historique
+            </button>
+          </Link>
           <button className="btn btnGhost" onClick={() => setOpenAssist(true)}>
             Assistance
           </button>
