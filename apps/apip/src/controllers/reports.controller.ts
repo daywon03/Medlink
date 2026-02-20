@@ -43,7 +43,7 @@ export class ReportsController {
         ...result,
       };
     } catch (error) {
-      this.logger.error(`❌ Error in getCallHistory: ${(error as Error).message}`);
+      this.logger.error(` Error in getCallHistory: ${(error as Error).message}`);
       return {
         success: false,
         message: (error as Error).message,
@@ -72,7 +72,7 @@ export class ReportsController {
         data,
       };
     } catch (error) {
-      this.logger.error(`❌ Error in getCallPdfData: ${(error as Error).message}`);
+      this.logger.error(` Error in getCallPdfData: ${(error as Error).message}`);
       return {
         success: false,
         message: (error as Error).message,

@@ -104,7 +104,7 @@ export default function TrackingClient({ token }: { token: string }) {
               status: evt.status ?? prev.status,
             };
           });
-          setError(""); // ✅ Clear error if socket recovers the data
+          setError(""); //  Clear error if socket recovers the data
         });
 
         // Listen for assignments from ARM console and map to PublicRide
@@ -138,7 +138,7 @@ export default function TrackingClient({ token }: { token: string }) {
           console.log("[tracking:assign] received:", evt, "mapped:", mapped);
 
           setRide((prev) => ({ ...(prev ?? {}), ...mapped } as PublicRide));
-          setError(""); // ✅ Clear error if socket recovers the data
+          setError(""); //  Clear error if socket recovers the data
         });
       } catch (e) {
         console.error("socket init error", e);
@@ -217,7 +217,7 @@ export default function TrackingClient({ token }: { token: string }) {
               }
             }}
           >
-            Partager 🔗
+            Partager 
           </button>
           <div className="medAvatar" />
         </>
@@ -248,7 +248,7 @@ export default function TrackingClient({ token }: { token: string }) {
 
         <div className="card trackSheet">
           <div className="trackDriver">
-            <div className="trackDriverAvatar">🚑</div>
+            <div className="trackDriverAvatar"></div>
             <div>
               <div className="muted small">Équipe en route</div>
               <div className="strong">{ride.ambulance.label}</div>

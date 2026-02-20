@@ -29,7 +29,7 @@ export class SupabaseCallRepository implements ICallRepository {
       .single();
 
     if (error) {
-      this.logger.error(`❌ Error creating call: ${error.message}`);
+      this.logger.error(` Error creating call: ${error.message}`);
       throw error;
     }
 
@@ -75,7 +75,7 @@ export class SupabaseCallRepository implements ICallRepository {
     const { data, error, count } = await query;
 
     if (error) {
-      this.logger.error(`❌ Error fetching calls: ${error.message}`);
+      this.logger.error(` Error fetching calls: ${error.message}`);
       throw error;
     }
 
@@ -96,7 +96,7 @@ export class SupabaseCallRepository implements ICallRepository {
       .eq('call_id', callId);
 
     if (error) {
-      this.logger.error(`❌ Error updating address: ${error.message}`);
+      this.logger.error(` Error updating address: ${error.message}`);
       throw error;
     }
   }
@@ -108,7 +108,7 @@ export class SupabaseCallRepository implements ICallRepository {
       .eq('call_id', callId);
 
     if (error) {
-      this.logger.error(`❌ Error finishing call: ${error.message}`);
+      this.logger.error(` Error finishing call: ${error.message}`);
       throw error;
     }
   }

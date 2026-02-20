@@ -60,7 +60,7 @@ export default function TrackMap({
             icon: createPinIcon(maps, "#ef4444"),
             zIndex: 100
           });
-          const info = new maps.InfoWindow({ content: createInfoWindowContent(`📍 ${incident.label}`) });
+          const info = new maps.InfoWindow({ content: createInfoWindowContent(` ${incident.label}`) });
           incidentMarkerRef.current.addListener("click", () => info.open({ anchor: incidentMarkerRef.current, map: mapRef.current }));
         }
 
@@ -71,7 +71,7 @@ export default function TrackMap({
             title: hospital.label,
             icon: createPinIcon(maps, "#3b82f6"),
           });
-          const info = new maps.InfoWindow({ content: createInfoWindowContent(`🏥 ${hospital.label}`) });
+          const info = new maps.InfoWindow({ content: createInfoWindowContent(` ${hospital.label}`) });
           hospitalMarkerRef.current.addListener("click", () => info.open({ anchor: hospitalMarkerRef.current, map: mapRef.current }));
         }
 
@@ -143,7 +143,7 @@ export default function TrackMap({
     const isDefaultParis = (Math.abs(incident.lat - 48.8566) < 0.0001 && Math.abs(incident.lng - 2.3522) < 0.0001);
 
     if (isDefaultParis && incident.label && !incident.label.includes("Paris") && window.google) {
-      // 🔄 Client-side fallback: Geocode address if backend sent default Paris
+      //  Client-side fallback: Geocode address if backend sent default Paris
       const geocoder = new window.google.maps.Geocoder();
       geocoder.geocode({ address: incident.label }, (results: any, status: string) => {
         if (status === "OK" && results?.[0]?.geometry?.location) {

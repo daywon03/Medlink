@@ -49,7 +49,7 @@ export class SupabaseExtractedDataRepository implements IExtractedDataRepository
         .single();
 
       if (error) {
-        this.logger.error(`❌ Error updating extracted data: ${error.message}`);
+        this.logger.error(` Error updating extracted data: ${error.message}`);
         throw error;
       }
       result = updated;
@@ -61,7 +61,7 @@ export class SupabaseExtractedDataRepository implements IExtractedDataRepository
         .single();
 
       if (error) {
-        this.logger.error(`❌ Error inserting extracted data: ${error.message}`);
+        this.logger.error(` Error inserting extracted data: ${error.message}`);
         throw error;
       }
       result = inserted;
@@ -78,7 +78,7 @@ export class SupabaseExtractedDataRepository implements IExtractedDataRepository
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      this.logger.error(`❌ Error fetching extracted data: ${error.message}`);
+      this.logger.error(` Error fetching extracted data: ${error.message}`);
     }
 
     return data ? this.mapToEntity(data) : null;

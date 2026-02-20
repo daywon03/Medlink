@@ -15,7 +15,7 @@ export class RideService {
    */
   upsertRide(ride: PublicRide): void {
     this.rides.set(ride.token, ride);
-    this.logger.log(`✅ Ride upserted: ${ride.token}`);
+    this.logger.log(` Ride upserted: ${ride.token}`);
   }
 
   /**
@@ -34,7 +34,7 @@ export class RideService {
 
     ride.status = status;
     this.rides.set(token, ride);
-    this.logger.log(`📝 Ride ${token} status updated to: ${status}`);
+    this.logger.log(` Ride ${token} status updated to: ${status}`);
     return true;
   }
 
@@ -61,7 +61,7 @@ export class RideService {
     }
 
     this.rides.set(token, ride);
-    this.logger.log(`📍 Ride ${token} position updated: ${lat}, ${lng}`);
+    this.logger.log(` Ride ${token} position updated: ${lat}, ${lng}`);
     return true;
   }
 
@@ -71,7 +71,7 @@ export class RideService {
   deleteRide(token: string): boolean {
     const deleted = this.rides.delete(token);
     if (deleted) {
-      this.logger.log(`🗑️ Ride deleted: ${token}`);
+      this.logger.log(`️ Ride deleted: ${token}`);
     }
     return deleted;
   }
@@ -101,7 +101,7 @@ export class RideService {
     }
 
     if (count > 0) {
-      this.logger.log(`🧹 Cleaned up ${count} expired ride(s)`);
+      this.logger.log(` Cleaned up ${count} expired ride(s)`);
     }
 
     return count;

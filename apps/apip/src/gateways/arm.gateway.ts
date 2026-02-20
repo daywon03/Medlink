@@ -29,39 +29,39 @@ export class ArmGateway extends BaseGateway {
   ) {
     super("ArmGateway");
 
-    // 👂 Subscribe to Redis arm:updates channel
+    //  Subscribe to Redis arm:updates channel
     this.redis.subscribe("arm:updates", (data: any) => {
-      this.logger.log(`📡 Received from Redis: ${data.callId}`);
+      this.logger.log(` Received from Redis: ${data.callId}`);
 
-      // 📡 Broadcast to ALL ARM dashboard clients via Socket.IO
+      //  Broadcast to ALL ARM dashboard clients via Socket.IO
       this.broadcast("call:update", data);
 
-      this.logger.log(`✅ Broadcasted to ARM dashboards: ${data.callId}`);
+      this.logger.log(` Broadcasted to ARM dashboards: ${data.callId}`);
     });
 
-    // 🆕 Subscribe to Redis arm:geolocation channel (async background search results)
+    //  Subscribe to Redis arm:geolocation channel (async background search results)
     this.redis.subscribe("arm:geolocation", (data: any) => {
-      this.logger.log(`📍 Geolocation received from Redis: ${data.callId}`);
+      this.logger.log(` Geolocation received from Redis: ${data.callId}`);
 
-      // 📡 Broadcast geolocation update to ARM dashboards
+      //  Broadcast geolocation update to ARM dashboards
       this.broadcast("call:geolocation", data);
 
       this.logger.log(
-        `✅ Geolocation broadcasted: ${data.nearestHospital?.name || "No hospital"}`,
+        ` Geolocation broadcasted: ${data.nearestHospital?.name || "No hospital"}`,
       );
     });
 
-    // 🆕 Subscribe to Redis arm:extraction channel (AI structured data extraction)
+    //  Subscribe to Redis arm:extraction channel (AI structured data extraction)
     this.redis.subscribe("arm:extraction", (data: any) => {
-      this.logger.log(`🤖 Extraction received from Redis: ${data.callId}`);
+      this.logger.log(` Extraction received from Redis: ${data.callId}`);
       this.broadcast("call:extraction", data);
       this.logger.log(
-        `✅ Extraction broadcasted: Age=${data.extractedData?.patientAge}, Symptoms=[${data.extractedData?.symptoms?.join(', ') || ''}]`,
+        ` Extraction broadcasted: Age=${data.extractedData?.patientAge}, Symptoms=[${data.extractedData?.symptoms?.join(', ') || ''}]`,
       );
     });
 
     this.logger.log(
-      "✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation + arm:extraction channels",
+      " ArmGateway subscribed to Redis arm:updates + arm:geolocation + arm:extraction channels",
     );
   }
 
@@ -83,9 +83,9 @@ export class ArmGateway extends BaseGateway {
     @MessageBody() payload: ArmActionPayload,
   ): Promise<void> {
     try {
-      this.logger.log(`📋 ARM action received: ${payload.type}`);
+      this.logger.log(` ARM action received: ${payload.type}`);
 
-      // ✅ Persist assignment using SupabaseAssignmentRepository (Clean Architecture)
+      //  Persist assignment using SupabaseAssignmentRepository (Clean Architecture)
       if (payload.type === 'assign_ambulance') {
         const p = payload as any;
         const callId = p.incidentId || p.callId;
@@ -96,7 +96,7 @@ export class ArmGateway extends BaseGateway {
             ambulanceTeam,
             trackingToken: p.trackingToken || callId,
           });
-          this.logger.log(`✅ Assignment persisted: ${ambulanceTeam} → ${callId}`);
+          this.logger.log(` Assignment persisted: ${ambulanceTeam} → ${callId}`);
         }
       }
 
@@ -130,7 +130,7 @@ export class ArmGateway extends BaseGateway {
     @MessageBody() payload: { token: string },
   ): void {
     try {
-      this.logger.log(`🔍 Tracking request for token: ${payload.token}`);
+      this.logger.log(` Tracking request for token: ${payload.token}`);
 
       // Emit back to the requesting client
       // The actual data will be provided by TrackingGateway
@@ -147,7 +147,7 @@ export class ArmGateway extends BaseGateway {
    * Called when an ambulance is assigned from ARM console
    */
   broadcastTrackingAssignment(data: any): void {
-    this.logger.log(`📡 Broadcasting tracking assignment: ${data.token}`);
+    this.logger.log(` Broadcasting tracking assignment: ${data.token}`);
     this.broadcast("tracking:assign", data);
   }
 }

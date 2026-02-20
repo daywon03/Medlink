@@ -75,7 +75,7 @@ export class SupabaseTriageRepository implements ITriageRepository {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      this.logger.error(`❌ Error fetching triage: ${error.message}`);
+      this.logger.error(` Error fetching triage: ${error.message}`);
     }
 
     return data ? this.mapToEntity(data) : null;

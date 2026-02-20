@@ -78,7 +78,7 @@ export default function TriageList() {
   if (error) {
     return (
       <div className="p-6 bg-red-50 border border-red-200 rounded-lg">
-        <p className="text-red-700">❌ Erreur: {error}</p>
+        <p className="text-red-700"> Erreur: {error}</p>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export default function TriageList() {
 
   return (
     <div className="space-y-4 p-6">
-      <h2 className="text-2xl font-bold mb-6">📋 Rapports de Triage IA</h2>
+      <h2 className="text-2xl font-bold mb-6"> Rapports de Triage IA</h2>
 
       {reports.map((report) => (
         <div
@@ -119,16 +119,16 @@ export default function TriageList() {
           <div className="flex items-center gap-4 text-sm text-gray-600">
             {report.call_info?.location_input_text && (
               <span className="flex items-center gap-1">
-                📍 {report.call_info.location_input_text}
+                 {report.call_info.location_input_text}
               </span>
             )}
             <span className="flex items-center gap-1">
-              🎯 Confiance: {Math.round(report.confidence * 100)}%
+               Confiance: {Math.round(report.confidence * 100)}%
             </span>
             {report.validated ? (
-              <span className="text-green-600 font-medium">✅ Validé</span>
+              <span className="text-green-600 font-medium"> Validé</span>
             ) : (
-              <span className="text-orange-600">⚠️ Validation requise</span>
+              <span className="text-orange-600">️ Validation requise</span>
             )}
           </div>
         </div>

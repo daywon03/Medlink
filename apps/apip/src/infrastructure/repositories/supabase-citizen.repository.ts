@@ -30,7 +30,7 @@ export class SupabaseCitizenRepository {
       .single();
 
     if (error) {
-      this.logger.error(`❌ Error creating anonymous citizen: ${error.message}`);
+      this.logger.error(` Error creating anonymous citizen: ${error.message}`);
       throw error;
     }
 

@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { TranscriptionGateway } from "./ws/transcription.gateway";
@@ -39,7 +41,15 @@ import { GetCallDetailUseCase } from "./application/use-cases/get-call-detail.us
 import { ExtractCallDataUseCase } from "./application/use-cases/extract-call-data.use-case";
 
 @Module({
-  imports: [],
+  imports: [
+    //  Rate Limiting — 60 requêtes max par minute par IP
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000, // 1 minute
+        limit: 60, // 60 requêtes max
+      },
+    ]),
+  ],
   controllers: [
     AppController,
     TriageController,
@@ -47,10 +57,13 @@ import { ExtractCallDataUseCase } from "./application/use-cases/extract-call-dat
     IncidentsController,
     HospitalsController,
     RideController,
-    ReportsController, // 🆕 PDF Export & Call History
+    ReportsController, //  PDF Export & Call History
   ],
   providers: [
     AppService,
+
+    //  Rate Limiting Guard (global)
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
 
     // ─── WebSocket Gateways ──────────────────────────────────────────────
     TranscriptionGateway,
@@ -65,7 +78,7 @@ import { ExtractCallDataUseCase } from "./application/use-cases/extract-call-dat
     ElevenLabsTTSService,
     ElizaArmService,
     RedisService,
-    GroqExtractionService, // 🆕 Groq AI structured data extraction
+    GroqExtractionService, //  Groq AI structured data extraction
 
     // ─── Clean Architecture: Repository Bindings (DI) ────────────────────
     // Interface → Implementation mapping via NestJS custom providers
@@ -86,7 +99,7 @@ import { ExtractCallDataUseCase } from "./application/use-cases/extract-call-dat
     GetCallHistoryUseCase,
     GetCallDetailUseCase,
     ExtractCallDataUseCase,
-    { provide: 'ExtractCallDataUseCase', useExisting: ExtractCallDataUseCase }, // 🆕 Named provider for @Inject() in ElizaArmService
+    { provide: 'ExtractCallDataUseCase', useExisting: ExtractCallDataUseCase }, //  Named provider for @Inject() in ElizaArmService
   ],
 })
 export class AppModule {}

@@ -24,10 +24,10 @@ export class GeocodingService {
   constructor() {
     this.apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
     if (!this.apiKey) {
-      this.logger.warn("⚠️ GOOGLE_MAPS_API_KEY not configured");
+      this.logger.warn("️ GOOGLE_MAPS_API_KEY not configured");
     } else {
       this.logger.log(
-        `🗝️ Google Maps API key loaded (${this.apiKey.length} chars)`,
+        `️ Google Maps API key loaded (${this.apiKey.length} chars)`,
       );
     }
   }
@@ -43,7 +43,7 @@ export class GeocodingService {
       }
 
       if (!this.apiKey) {
-        this.logger.error("❌ Google Maps API key not configured");
+        this.logger.error(" Google Maps API key not configured");
         return null;
       }
 
@@ -58,7 +58,7 @@ export class GeocodingService {
         const location = result.geometry.location;
 
         this.logger.log(
-          `📍 Geocodé: "${address}" → ${location.lat}, ${location.lng}`,
+          ` Geocodé: "${address}" → ${location.lat}, ${location.lng}`,
         );
         return {
           lat: location.lat,
@@ -68,7 +68,7 @@ export class GeocodingService {
       }
 
       this.logger.warn(
-        `⚠️ Adresse non trouvée: "${address}" (status: ${data.status})` +
+        `️ Adresse non trouvée: "${address}" (status: ${data.status})` +
           (data.error_message ? ` - ${data.error_message}` : ""),
       );
       return null;
@@ -88,7 +88,7 @@ export class GeocodingService {
   ): Promise<Hospital[]> {
     try {
       if (!this.apiKey) {
-        this.logger.error("❌ Google Maps API key not configured");
+        this.logger.error(" Google Maps API key not configured");
         return [];
       }
 
@@ -126,13 +126,13 @@ export class GeocodingService {
           .slice(0, 5); // Top 5
 
         this.logger.log(
-          `🏥 Trouvé ${hospitals.length} hôpitaux dans ${radiusKm}km via Google Maps`,
+          ` Trouvé ${hospitals.length} hôpitaux dans ${radiusKm}km via Google Maps`,
         );
         return hospitals;
       }
 
       this.logger.warn(
-        `⚠️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})` +
+        `️ Aucun hôpital trouvé dans ${radiusKm}km (status: ${data.status})` +
           (data.error_message ? ` - ${data.error_message}` : ""),
       );
       return [];
@@ -152,7 +152,7 @@ export class GeocodingService {
   ): Promise<Hospital[]> {
     try {
       if (!this.apiKey) {
-        this.logger.error("❌ Google Maps API key not configured");
+        this.logger.error(" Google Maps API key not configured");
         return [];
       }
 
@@ -190,13 +190,13 @@ export class GeocodingService {
           .slice(0, 3); // Top 3
 
         this.logger.log(
-          `🚒 Trouvé ${stations.length} casernes pompiers dans ${radiusKm}km via Google Maps`,
+          ` Trouvé ${stations.length} casernes pompiers dans ${radiusKm}km via Google Maps`,
         );
         return stations;
       }
 
       this.logger.warn(
-        `⚠️ Aucune caserne trouvée dans ${radiusKm}km` +
+        `️ Aucune caserne trouvée dans ${radiusKm}km` +
           (data.error_message ? ` - ${data.error_message}` : ""),
       );
       return [];
@@ -216,7 +216,7 @@ export class GeocodingService {
   ): Promise<Hospital[]> {
     try {
       if (!this.apiKey) {
-        this.logger.error("❌ Google Maps API key not configured");
+        this.logger.error(" Google Maps API key not configured");
         return [];
       }
 
@@ -254,13 +254,13 @@ export class GeocodingService {
           .slice(0, 5); // Top 5
 
         this.logger.log(
-          `🚑 Trouvé ${stations.length} stations ambulance dans ${radiusKm}km via Google Maps`,
+          ` Trouvé ${stations.length} stations ambulance dans ${radiusKm}km via Google Maps`,
         );
         return stations;
       }
 
       this.logger.warn(
-        `⚠️ Aucune ambulance trouvée dans ${radiusKm}km` +
+        `️ Aucune ambulance trouvée dans ${radiusKm}km` +
           (data.error_message ? ` - ${data.error_message}` : ""),
       );
       return [];

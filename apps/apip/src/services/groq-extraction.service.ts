@@ -49,17 +49,17 @@ TRANSCRIPTION:
    */
   async extractFromTranscription(transcriptionText: string): Promise<GroqExtractionResult> {
     if (!process.env.GROQ_API_KEY) {
-      this.logger.warn('⚠️ GROQ_API_KEY non définie, extraction impossible');
+      this.logger.warn('️ GROQ_API_KEY non définie, extraction impossible');
       return this.getDefaultResult();
     }
 
     if (!transcriptionText || transcriptionText.trim().length < 10) {
-      this.logger.warn('⚠️ Transcription trop courte pour extraction');
+      this.logger.warn('️ Transcription trop courte pour extraction');
       return this.getDefaultResult();
     }
 
     try {
-      this.logger.log(`🤖 Extraction structurée Groq (${transcriptionText.length} chars)...`);
+      this.logger.log(` Extraction structurée Groq (${transcriptionText.length} chars)...`);
 
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
@@ -93,11 +93,11 @@ TRANSCRIPTION:
         throw new Error('Réponse Groq vide');
       }
 
-      this.logger.log(`✅ Groq extraction réussie (tokens: ${data.usage?.total_tokens || 'N/A'})`);
+      this.logger.log(` Groq extraction réussie (tokens: ${data.usage?.total_tokens || 'N/A'})`);
 
       return this.parseGroqResponse(rawContent);
     } catch (error: any) {
-      this.logger.error(`❌ Erreur extraction Groq: ${error.message}`);
+      this.logger.error(` Erreur extraction Groq: ${error.message}`);
       return this.fallbackRegexExtraction(transcriptionText);
     }
   }
@@ -127,14 +127,14 @@ TRANSCRIPTION:
       };
 
       this.logger.log(
-        `📋 Extraction: Age=${result.patientAge}, Symptoms=[${result.symptoms.join(', ')}], ` +
+        ` Extraction: Age=${result.patientAge}, Symptoms=[${result.symptoms.join(', ')}], ` +
         `Conscious=${result.isConscious}, Breathing=${result.isBreathing}, Bleeding=${result.hasBleeding}, ` +
         `Confidence=${result.extractionConfidence}`,
       );
 
       return result;
     } catch (parseError: any) {
-      this.logger.error(`❌ Parse JSON échoué: ${parseError.message}`);
+      this.logger.error(` Parse JSON échoué: ${parseError.message}`);
       this.logger.debug(`Raw content: ${rawContent.substring(0, 200)}`);
       return this.getDefaultResult();
     }
@@ -144,7 +144,7 @@ TRANSCRIPTION:
    * Extraction fallback par regex si Groq échoue
    */
   private fallbackRegexExtraction(text: string): GroqExtractionResult {
-    this.logger.log('🔄 Fallback regex extraction...');
+    this.logger.log(' Fallback regex extraction...');
     const lower = text.toLowerCase();
 
     const result: GroqExtractionResult = {
@@ -208,7 +208,7 @@ TRANSCRIPTION:
       }
     }
 
-    this.logger.log(`📋 Fallback extraction: ${JSON.stringify(result)}`);
+    this.logger.log(` Fallback extraction: ${JSON.stringify(result)}`);
     return result;
   }
 

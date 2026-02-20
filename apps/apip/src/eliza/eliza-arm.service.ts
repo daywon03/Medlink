@@ -34,27 +34,27 @@ export class ElizaArmService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      this.logger.log("🔧 Initializing ARM Service with Eliza Architecture...");
+      this.logger.log(" Initializing ARM Service with Eliza Architecture...");
 
       // Load Triage Character
       this.character = triageCharacter;
 
-      this.logger.log(`✅ ARM Service initialized`);
-      this.logger.log(`📝 Character: ${this.character.name}`);
+      this.logger.log(` ARM Service initialized`);
+      this.logger.log(` Character: ${this.character.name}`);
       this.logger.log(
-        `📝 System prompt: ${this.character.system.length} chars`,
+        ` System prompt: ${this.character.system.length} chars`,
       );
       this.logger.log(`   Bio: ${this.character.bio.join(", ")}`);
-      this.logger.log(`🤖 Model: ${this.character.settings.model}`);
+      this.logger.log(` Model: ${this.character.settings.model}`);
       this.logger.log(
-        `🔑 Groq API Key: ${process.env.GROQ_API_KEY ? "✅ SET" : "❌ NOT SET"}`,
+        ` Groq API Key: ${process.env.GROQ_API_KEY ? " SET" : " NOT SET"}`,
       );
 
       if (!process.env.GROQ_API_KEY) {
-        this.logger.error("⚠️  GROQ_API_KEY not found in .env!");
+        this.logger.error("️  GROQ_API_KEY not found in .env!");
       }
     } catch (error) {
-      this.logger.error("❌ Failed to initialize ARM Service:", error);
+      this.logger.error(" Failed to initialize ARM Service:", error);
       throw error;
     }
   }
@@ -67,7 +67,7 @@ export class ElizaArmService implements OnModuleInit {
   }
 
   /**
-   * 🆕 Génère résumé progressif selon avancement conversation
+   *  Génère résumé progressif selon avancement conversation
    * Permet affichage dashboard ARM dès le premier échange
    */
   private async generateProgressiveSummary(
@@ -114,8 +114,8 @@ export class ElizaArmService implements OnModuleInit {
       confidence: number;
       symptoms: string[];
       vitalEmergency: boolean;
-      isPartial?: boolean; // 🆕 Flag résumé partiel
-      agentAdvice?: string; // 🆕 Conseils détaillés de l'agent
+      isPartial?: boolean; //  Flag résumé partiel
+      agentAdvice?: string; //  Conseils détaillés de l'agent
       extractedAddress?: string;
     };
   }> {
@@ -148,7 +148,7 @@ export class ElizaArmService implements OnModuleInit {
         };
 
         if (infoResult.message) {
-          this.logger.warn(`⚠️  ${infoResult.message}`);
+          this.logger.warn(`️  ${infoResult.message}`);
         }
       }
 
@@ -178,7 +178,7 @@ export class ElizaArmService implements OnModuleInit {
         return { response: confirmation, triageData };
       }
 
-      this.logger.log(`🌐 Calling Groq API (${this.character.name})`);
+      this.logger.log(` Calling Groq API (${this.character.name})`);
       this.logger.log(
         `   User: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? "..." : ""}"`,
       );
@@ -223,7 +223,7 @@ export class ElizaArmService implements OnModuleInit {
         content: armResponse,
       });
 
-      this.logger.log(`✅ Groq API Success`);
+      this.logger.log(` Groq API Success`);
       this.logger.log(`   Tokens: ${data.usage?.total_tokens || "N/A"}`);
       this.logger.log(
         `   Response: "${armResponse.substring(0, 100)}${armResponse.length > 100 ? "..." : ""}"`,
@@ -237,7 +237,7 @@ export class ElizaArmService implements OnModuleInit {
 
       return { response: armResponse, triageData };
     } catch (error) {
-      this.logger.error(`❌ Groq API Error:`, error.message);
+      this.logger.error(` Groq API Error:`, error.message);
       return { response: this.getFallbackResponse(userMessage) };
     }
   }
@@ -281,20 +281,20 @@ export class ElizaArmService implements OnModuleInit {
       }
     | undefined
   > {
-    // ✅ Dès le premier échange
+    //  Dès le premier échange
     const messageCount = context.messages.filter(
       (m) => m.role !== "system",
     ).length;
     if (messageCount < 2) {
       this.logger.debug(
-        `⏩ Skip résumé (seulement ${messageCount} messages, besoin 2+)`,
+        ` Skip résumé (seulement ${messageCount} messages, besoin 2+)`,
       );
       return undefined;
     }
 
     try {
       this.logger.log(
-        `🔄 Génération résumé progressif (${messageCount} messages)...`,
+        ` Génération résumé progressif (${messageCount} messages)...`,
       );
 
       const summary =
@@ -312,11 +312,11 @@ export class ElizaArmService implements OnModuleInit {
         vitalEmergency: context.collectedInfo.urgence_vitale || false,
         isPartial: messageCount < 4,
         agentAdvice: armResponse,
-        extractedAddress: context.collectedInfo.adresse, // 🆕 Expose raw address for immediate UI update
+        extractedAddress: context.collectedInfo.adresse, //  Expose raw address for immediate UI update
       };
 
       this.logger.log(
-        `📋 Triage ${triageData.isPartial ? "partiel" : "complet"}: ${priority} - "${summary.substring(0, 60)}..."`,
+        ` Triage ${triageData.isPartial ? "partiel" : "complet"}: ${priority} - "${summary.substring(0, 60)}..."`,
       );
 
       if (context.collectedInfo.adresse && !context._geocoded) {
@@ -328,7 +328,7 @@ export class ElizaArmService implements OnModuleInit {
         );
       }
 
-      // 🆕 Extraction structurée IA (fire-and-forget, ≥4 messages)
+      //  Extraction structurée IA (fire-and-forget, ≥4 messages)
       if (messageCount >= 4) {
         this.extractStructuredDataAsync(callId, context);
       }
@@ -336,7 +336,7 @@ export class ElizaArmService implements OnModuleInit {
       return triageData;
     } catch (error) {
       this.logger.warn(
-        `⚠️  Failed to generate triage summary: ${error.message}`,
+        `️  Failed to generate triage summary: ${error.message}`,
       );
       return undefined;
     }
@@ -346,17 +346,17 @@ export class ElizaArmService implements OnModuleInit {
    * Clear conversation context
    */
   clearContext(callId: string): void {
-    // 🆕 Trigger final extraction before clearing context
+    //  Trigger final extraction before clearing context
     const context = this.conversationContexts.get(callId);
     if (context) {
       this.extractStructuredDataAsync(callId, context);
     }
     this.conversationContexts.delete(callId);
-    this.logger.log(`🧹 Cleared context for call: ${callId}`);
+    this.logger.log(` Cleared context for call: ${callId}`);
   }
 
   // ==========================================================================
-  // 🆕 GROQ STRUCTURED DATA EXTRACTION (async, fire-and-forget)
+  //  GROQ STRUCTURED DATA EXTRACTION (async, fire-and-forget)
   // ==========================================================================
 
   /**
@@ -367,7 +367,7 @@ export class ElizaArmService implements OnModuleInit {
     context: ConversationContext,
   ): void {
     this.performStructuredExtraction(callId, context).catch((err) =>
-      this.logger.error(`❌ Structured extraction error: ${err.message}`),
+      this.logger.error(` Structured extraction error: ${err.message}`),
     );
   }
 
@@ -384,11 +384,11 @@ export class ElizaArmService implements OnModuleInit {
       .join(" ");
 
     if (fullText.trim().length < 15) {
-      this.logger.debug(`⏩ Skip extraction (texte trop court)`);
+      this.logger.debug(` Skip extraction (texte trop court)`);
       return;
     }
 
-    this.logger.log(`🤖 [ASYNC] Extraction structurée pour appel: ${callId}`);
+    this.logger.log(` [ASYNC] Extraction structurée pour appel: ${callId}`);
 
     try {
       // 1. Extraire via Groq
@@ -411,7 +411,7 @@ export class ElizaArmService implements OnModuleInit {
       const smartPriority = this.extractCallData.calculateSmartPriority(extracted);
 
       this.logger.log(
-        `✅ [ASYNC] Extraction sauvegardée — Score sévérité: ${extracted.calculateSeverityScore()}, Priorité smart: ${smartPriority}`,
+        ` [ASYNC] Extraction sauvegardée — Score sévérité: ${extracted.calculateSeverityScore()}, Priorité smart: ${smartPriority}`,
       );
 
       // 4. Publier via Redis pour dashboard ARM
@@ -431,9 +431,9 @@ export class ElizaArmService implements OnModuleInit {
         timestamp: new Date().toISOString(),
       });
 
-      this.logger.log(`📡 [ASYNC] Extraction publiée via Redis: arm:extraction`);
+      this.logger.log(` [ASYNC] Extraction publiée via Redis: arm:extraction`);
     } catch (error: any) {
-      this.logger.error(`❌ [ASYNC] Extraction failed: ${error.message}`);
+      this.logger.error(` [ASYNC] Extraction failed: ${error.message}`);
     }
   }
 
@@ -549,7 +549,7 @@ Note structurée:`;
   }
 
   // ==========================================================================
-  // 🆕 ASYNC BACKGROUND SEARCH - Google Maps API
+  //  ASYNC BACKGROUND SEARCH - Google Maps API
   // ==========================================================================
 
   /**
@@ -563,7 +563,7 @@ Note structurée:`;
   ): void {
     // Fire and forget - ne pas await
     this.performGeoSearch(callId, address, priority).catch((err) =>
-      this.logger.error(`❌ Background geolocation error: ${err.message}`),
+      this.logger.error(` Background geolocation error: ${err.message}`),
     );
   }
 
@@ -575,17 +575,17 @@ Note structurée:`;
     address: string,
     priority: string,
   ): Promise<void> {
-    this.logger.log(`🔍 [ASYNC] Starting background search for: "${address}"`);
+    this.logger.log(` [ASYNC] Starting background search for: "${address}"`);
 
     try {
       // 1. Geocoding: Adresse → Coordonnées
       const location = await this.geocoding.geocodeAddress(address);
       if (!location) {
-        this.logger.warn(`⚠️ [ASYNC] Geocoding failed for: "${address}"`);
+        this.logger.warn(`️ [ASYNC] Geocoding failed for: "${address}"`);
         return;
       }
 
-      this.logger.log(`📍 [ASYNC] Geocoded: ${location.lat}, ${location.lng}`);
+      this.logger.log(` [ASYNC] Geocoded: ${location.lat}, ${location.lng}`);
 
       // 2. Recherches parallèles: Hôpitaux + Pompiers
       const [hospitals, fireStations] = await Promise.all([
@@ -605,12 +605,12 @@ Note structurée:`;
       // Log résultats
       if (nearestHospital) {
         this.logger.log(
-          `🏥 [ASYNC] Hospital found: ${nearestHospital.name} (${nearestHospital.distance}km, ETA: ${eta}min)`,
+          ` [ASYNC] Hospital found: ${nearestHospital.name} (${nearestHospital.distance}km, ETA: ${eta}min)`,
         );
       }
       if (nearestFireStation) {
         this.logger.log(
-          `🚒 [ASYNC] Fire station found: ${nearestFireStation.name} (${nearestFireStation.distance}km)`,
+          ` [ASYNC] Fire station found: ${nearestFireStation.name} (${nearestFireStation.distance}km)`,
         );
       }
 
@@ -625,10 +625,10 @@ Note structurée:`;
           patientLocation: location,
           eta: eta || undefined,
         });
-        this.logger.log(`💾 [ASYNC] Geolocation saved to database`);
+        this.logger.log(` [ASYNC] Geolocation saved to database`);
       } catch (dbErr) {
         this.logger.warn(
-          `⚠️ [ASYNC] Failed to save geolocation: ${dbErr.message}`,
+          `️ [ASYNC] Failed to save geolocation: ${dbErr.message}`,
         );
       }
 
@@ -642,16 +642,16 @@ Note structurée:`;
           eta,
           timestamp: new Date().toISOString(),
         });
-        this.logger.log(`📡 [ASYNC] Geolocation broadcasted to ARM dashboard`);
+        this.logger.log(` [ASYNC] Geolocation broadcasted to ARM dashboard`);
       } catch (redisErr) {
-        this.logger.warn(`⚠️ [ASYNC] Failed to broadcast: ${redisErr.message}`);
+        this.logger.warn(`️ [ASYNC] Failed to broadcast: ${redisErr.message}`);
       }
 
       this.logger.log(
-        `✅ [ASYNC] Background search completed for call: ${callId}`,
+        ` [ASYNC] Background search completed for call: ${callId}`,
       );
     } catch (error) {
-      this.logger.error(`❌ [ASYNC] Search failed: ${error.message}`);
+      this.logger.error(` [ASYNC] Search failed: ${error.message}`);
     }
   }
 }

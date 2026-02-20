@@ -58,12 +58,12 @@ export default function LoginPage() {
 
         {justRegistered && (
           <div className={styles.notice}>
-            ✅ Compte créé avec succès ! Vous pouvez maintenant vous connecter.
+             Compte créé avec succès ! Vous pouvez maintenant vous connecter.
           </div>
         )}
         {unauthorized && (
           <div className={styles.notice}>
-            🔒 Connexion requise pour accéder à cette page.
+             Connexion requise pour accéder à cette page.
           </div>
         )}
 

@@ -16,8 +16,8 @@ type Props = {
 };
 
 const NAV_ITEMS = [
-  { href: "/arm", label: "Incidents", icon: "📋" },
-  { href: "/arm/history", label: "Historique", icon: "📜" },
+  { href: "/arm", label: "Incidents", icon: "" },
+  { href: "/arm/history", label: "Historique", icon: "" },
 ];
 
 export default function MedlinkLayout({
@@ -105,17 +105,17 @@ export default function MedlinkLayout({
             })}
             {userEmail ? (
               <button className="medNavItem" type="button" onClick={handleLogout}>
-                <span className="medNavIcon">🚪</span>
+                <span className="medNavIcon"></span>
                 <span>Déconnexion</span>
               </button>
             ) : (
               <>
                 <Link className={`medNavItem ${pathname === "/login" ? "active" : ""}`} href="/login">
-                  <span className="medNavIcon">🔐</span>
+                  <span className="medNavIcon"></span>
                   <span>Connexion</span>
                 </Link>
                 <Link className={`medNavItem ${pathname === "/register" ? "active" : ""}`} href="/register">
-                  <span className="medNavIcon">👤</span>
+                  <span className="medNavIcon"></span>
                   <span>Créer un compte</span>
                 </Link>
               </>
@@ -134,7 +134,7 @@ export default function MedlinkLayout({
             <div className="medSidebarTitle">Raccourcis</div>
             <div className="medShortcutList">
               <div>• / : focus recherche</div>
-              <div>• ⬆︎⬇︎ : sélectionner</div>
+              <div>• ︎︎ : sélectionner</div>
               <div>• Entrée : ouvrir détails</div>
             </div>
           </div>

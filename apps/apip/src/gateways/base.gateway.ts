@@ -27,7 +27,7 @@ export abstract class BaseGateway
   }
 
   handleDisconnect(client: Socket) {
-    this.logger.log(`🔴 Client disconnected: ${client.id}`);
+    this.logger.log(` Client disconnected: ${client.id}`);
     this.onDisconnect(client);
   }
 
@@ -56,7 +56,7 @@ export abstract class BaseGateway
    * Emit event to all connected clients
    */
   protected broadcast(event: string, data: any): void {
-    this.logger.debug(`📡 Broadcasting ${event}`);
+    this.logger.debug(` Broadcasting ${event}`);
     this.server.emit(event, data);
   }
 
@@ -64,7 +64,7 @@ export abstract class BaseGateway
    * Emit event to specific client
    */
   protected emitToClient(client: Socket, event: string, data: any): void {
-    this.logger.debug(`📤 Sending ${event} to ${client.id}`);
+    this.logger.debug(` Sending ${event} to ${client.id}`);
     client.emit(event, data);
   }
 
@@ -72,6 +72,6 @@ export abstract class BaseGateway
    * Handle errors in event handlers
    */
   protected handleError(error: Error, context: string): void {
-    this.logger.error(`❌ Error in ${context}: ${error.message}`, error.stack);
+    this.logger.error(` Error in ${context}: ${error.message}`, error.stack);
   }
 }

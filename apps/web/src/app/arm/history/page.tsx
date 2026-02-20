@@ -37,11 +37,11 @@ function priorityBadge(priority: string | undefined) {
 
 function priorityLabel(priority: string | undefined) {
   const labels: Record<string, string> = {
-    P0: "🔴 P0 — Urgence absolue",
+    P0: " P0 — Urgence absolue",
     P1: "🟠 P1 — Urgence vitale",
     P2: "🟡 P2 — Urgence relative",
-    P3: "🔵 P3 — Peu urgent",
-    P5: "⚪ P5 — Conseil médical",
+    P3: " P3 — Peu urgent",
+    P5: " P5 — Conseil médical",
   };
   return labels[priority || ""] || priority || "—";
 }
@@ -190,8 +190,8 @@ export default function HistoryPage() {
         const triageFields = [
           ["Priorité", data.triage.priority],
           ["Confiance", `${Math.round(data.triage.confidence * 100)}%`],
-          ["Urgence vitale", data.triage.isVitalEmergency ? "OUI ⚠️" : "Non"],
-          ["Validé par médecin", data.triage.validatedByDoctor ? "Oui ✅" : "Non"],
+          ["Urgence vitale", data.triage.isVitalEmergency ? "OUI ️" : "Non"],
+          ["Validé par médecin", data.triage.validatedByDoctor ? "Oui " : "Non"],
         ];
 
         triageFields.forEach(([label, value]) => {
@@ -308,10 +308,10 @@ export default function HistoryPage() {
       actions={
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button className="btn btnGhost" onClick={exportCsv} disabled={calls.length === 0}>
-            📊 Export CSV
+             Export CSV
           </button>
           <button className="btn btnGhost" onClick={fetchHistory}>
-            🔄 Actualiser
+             Actualiser
           </button>
         </div>
       }
@@ -319,7 +319,7 @@ export default function HistoryPage() {
       {/* ─── Filters ───────────────────────────────────────────────────────────── */}
       <div className="card">
         <div className="cardHead">
-          <div className="cardTitle">🔍 Filtres de recherche</div>
+          <div className="cardTitle"> Filtres de recherche</div>
         </div>
         <div className="cardBody">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
@@ -359,7 +359,7 @@ export default function HistoryPage() {
       <div className="grid" style={{ gridTemplateColumns: selectedCall ? "1.4fr 0.6fr" : "1fr" }}>
         <div className="card">
           <div className="cardHead">
-            <div className="cardTitle">📋 Liste des appels</div>
+            <div className="cardTitle"> Liste des appels</div>
             <div className="muted small">{total} résultat{total !== 1 ? "s" : ""}</div>
           </div>
           <div className="cardBody p-0">
@@ -429,7 +429,7 @@ export default function HistoryPage() {
                               }}
                               disabled={pdfLoading}
                             >
-                              📄 PDF
+                               PDF
                             </button>
                           </td>
                         </tr>
@@ -473,7 +473,7 @@ export default function HistoryPage() {
                 onClick={() => exportCallPdf(selectedCall.callId)}
                 disabled={pdfLoading}
               >
-                📄 Export PDF
+                 Export PDF
               </button>
             </div>
             <div className="cardBody stack">
@@ -520,7 +520,7 @@ export default function HistoryPage() {
                       </div>
                       {selectedCall.triage.isVitalEmergency && (
                         <div style={{ color: "#c03346", fontWeight: 700 }}>
-                          ⚠️ URGENCE VITALE
+                          ️ URGENCE VITALE
                         </div>
                       )}
                       {selectedCall.triage.aiExplanation && (

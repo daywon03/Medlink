@@ -29,12 +29,12 @@ export class ExtractCallDataUseCase {
    * Called after call ends or during progressive analysis
    */
   async execute(callId: string, groqExtraction: ExtractedDataInput): Promise<ExtractedData> {
-    this.logger.log(`🤖 Extracting structured data for call: ${callId}`);
+    this.logger.log(` Extracting structured data for call: ${callId}`);
 
     const extracted = await this.extractedDataRepo.createOrUpdate(callId, groqExtraction);
 
     this.logger.log(
-      `✅ Extracted data saved - Age: ${extracted.patientAge}, ` +
+      ` Extracted data saved - Age: ${extracted.patientAge}, ` +
       `Symptoms: [${extracted.symptoms.join(', ')}], ` +
       `Conscious: ${extracted.isConscious}, ` +
       `Confidence: ${extracted.extractionConfidence}`,
@@ -56,7 +56,7 @@ export class ExtractCallDataUseCase {
     else if (score >= 15) priority = 'P3';  // Peu urgent
     else priority = 'P5';                   // Conseil médical
 
-    this.logger.log(`📊 Smart Triage - Score: ${score} → Priority: ${priority}`);
+    this.logger.log(` Smart Triage - Score: ${score} → Priority: ${priority}`);
     return priority;
   }
 

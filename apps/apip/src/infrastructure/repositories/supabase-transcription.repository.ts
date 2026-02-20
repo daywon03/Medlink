@@ -22,7 +22,7 @@ export class SupabaseTranscriptionRepository implements ITranscriptionRepository
       .insert([{ call_id: callId, texte_transcrit: text }]);
 
     if (error) {
-      this.logger.error(`❌ Error inserting transcription: ${error.message}`);
+      this.logger.error(` Error inserting transcription: ${error.message}`);
       throw error;
     }
   }
@@ -35,7 +35,7 @@ export class SupabaseTranscriptionRepository implements ITranscriptionRepository
       .order('created_at', { ascending: true });
 
     if (error) {
-      this.logger.error(`❌ Error fetching transcriptions: ${error.message}`);
+      this.logger.error(` Error fetching transcriptions: ${error.message}`);
       throw error;
     }
 

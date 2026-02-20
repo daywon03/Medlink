@@ -28,19 +28,19 @@ export class RedisService implements OnModuleDestroy {
     this.subscriber = new Redis(redisConfig);
 
     this.publisher.on("connect", () => {
-      this.logger.log("✅ Redis Publisher connected");
+      this.logger.log(" Redis Publisher connected");
     });
 
     this.subscriber.on("connect", () => {
-      this.logger.log("✅ Redis Subscriber connected");
+      this.logger.log(" Redis Subscriber connected");
     });
 
     this.publisher.on("error", (err) => {
-      this.logger.error("❌ Redis Publisher error:", err);
+      this.logger.error(" Redis Publisher error:", err);
     });
 
     this.subscriber.on("error", (err) => {
-      this.logger.error("❌ Redis Subscriber error:", err);
+      this.logger.error(" Redis Subscriber error:", err);
     });
   }
 
@@ -53,7 +53,7 @@ export class RedisService implements OnModuleDestroy {
         typeof message === "string" ? message : JSON.stringify(message);
       await this.publisher.publish(channel, payload);
       this.logger.debug(
-        `📡 Published to ${channel}: ${payload.substring(0, 100)}...`,
+        ` Published to ${channel}: ${payload.substring(0, 100)}...`,
       );
     } catch (error) {
       this.logger.error(`Failed to publish to ${channel}:`, error);
@@ -70,7 +70,7 @@ export class RedisService implements OnModuleDestroy {
   ): Promise<void> {
     try {
       await this.subscriber.subscribe(channel);
-      this.logger.log(`👂 Subscribed to Redis channel: ${channel}`);
+      this.logger.log(` Subscribed to Redis channel: ${channel}`);
 
       this.subscriber.on("message", (ch, msg) => {
         if (ch === channel) {
@@ -94,14 +94,14 @@ export class RedisService implements OnModuleDestroy {
    */
   async unsubscribe(channel: string): Promise<void> {
     await this.subscriber.unsubscribe(channel);
-    this.logger.log(`🔕 Unsubscribed from Redis channel: ${channel}`);
+    this.logger.log(` Unsubscribed from Redis channel: ${channel}`);
   }
 
   /**
    * Cleanup lors de la destruction du module
    */
   async onModuleDestroy() {
-    this.logger.log("🔌 Disconnecting Redis clients...");
+    this.logger.log(" Disconnecting Redis clients...");
     await this.publisher.quit();
     await this.subscriber.quit();
   }

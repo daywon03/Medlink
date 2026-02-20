@@ -33,14 +33,14 @@ export class IncidentsController {
         .in("status", ["clos", "closed", "termine", "terminé"]);
 
       if (error) {
-        console.error("❌ Error fetching incidents:", error);
+        console.error(" Error fetching incidents:", error);
         return { success: false, message: error.message };
       }
 
       const mapped = (data || []).map((row: any) => this.mapIncident(row));
       return { success: true, data: mapped };
     } catch (error) {
-      console.error("❌ Exception in getClosedIncidents:", error);
+      console.error(" Exception in getClosedIncidents:", error);
       return { success: false, message: (error as Error).message };
     }
   }

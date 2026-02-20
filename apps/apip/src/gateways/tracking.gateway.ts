@@ -32,7 +32,7 @@ export class TrackingGateway extends BaseGateway {
 
   protected onConnection(client: Socket): void {
     super.onConnection(client);
-    this.logger.log(`👁️ Tracking client connected: ${client.id}`);
+    this.logger.log(`️ Tracking client connected: ${client.id}`);
   }
 
   /**
@@ -46,7 +46,7 @@ export class TrackingGateway extends BaseGateway {
   ): void {
     try {
       this.logger.log(
-        `🔍 Tracking request from client for token: ${payload?.token}`,
+        ` Tracking request from client for token: ${payload?.token}`,
       );
 
       if (!payload?.token) {
@@ -60,7 +60,7 @@ export class TrackingGateway extends BaseGateway {
       const ride = this.rideService.findByToken(payload.token);
 
       if (!ride) {
-        this.logger.warn(`⚠️ Ride not found for token: ${payload.token}`);
+        this.logger.warn(`️ Ride not found for token: ${payload.token}`);
         this.emitToClient(client, "tracking:error", {
           error: "Ride not found or expired",
           token: payload.token,
@@ -80,7 +80,7 @@ export class TrackingGateway extends BaseGateway {
 
       // Send current ride state to the client
       this.emitToClient(client, "tracking:assign", ride);
-      this.logger.log(`✅ Sent tracking data for token: ${payload.token}`);
+      this.logger.log(` Sent tracking data for token: ${payload.token}`);
     } catch (error) {
       this.handleError(error as Error, "handleTrackingRequest");
       this.emitToClient(client, "tracking:error", {
@@ -99,7 +99,7 @@ export class TrackingGateway extends BaseGateway {
     @MessageBody() payload: TrackingAssignPayload,
   ): Promise<void> {
     try {
-      this.logger.log(`🚑 Tracking assignment for token: ${payload.token}`);
+      this.logger.log(` Tracking assignment for token: ${payload.token}`);
 
       // Validate payload
       if (!payload.token) {
@@ -114,7 +114,7 @@ export class TrackingGateway extends BaseGateway {
         token: payload.token,
         status: payload.status || "assigned",
         ambulance: payload.ambulance || { label: "AMB-?" },
-        // ✅ Récupérer hôpital depuis BDD au lieu de hardcodé
+        //  Récupérer hôpital depuis BDD au lieu de hardcodé
         destinationHospital:
           payload.destinationHospital ||
           (await this.getHospitalFromDB(payload.token)),
@@ -124,7 +124,7 @@ export class TrackingGateway extends BaseGateway {
           lng: payload.incident?.lng || 0,
           updatedAt: new Date().toISOString(),
         },
-        // ✅ Récupérer ETA depuis BDD
+        //  Récupérer ETA depuis BDD
         etaMinutes:
           payload.etaMinutes || (await this.getETAFromDB(payload.token)),
         expiresAt:
@@ -144,7 +144,7 @@ export class TrackingGateway extends BaseGateway {
       });
 
       this.logger.log(
-        `✅ Tracking assignment broadcast for token: ${payload.token}`,
+        ` Tracking assignment broadcast for token: ${payload.token}`,
       );
     } catch (error) {
       this.handleError(error as Error, "handleTrackingAssign");
@@ -163,7 +163,7 @@ export class TrackingGateway extends BaseGateway {
     @MessageBody() payload: any,
   ): void {
     try {
-      this.logger.log(`📍 Ride update for token: ${payload.token}`);
+      this.logger.log(` Ride update for token: ${payload.token}`);
 
       if (!payload.token) {
         this.emitToClient(client, "tracking:error", {
@@ -189,7 +189,7 @@ export class TrackingGateway extends BaseGateway {
       // Broadcast update to all clients
       this.broadcast("ride:update", payload);
 
-      this.logger.log(`✅ Ride update broadcast for token: ${payload.token}`);
+      this.logger.log(` Ride update broadcast for token: ${payload.token}`);
     } catch (error) {
       this.handleError(error as Error, "handleRideUpdate");
       this.emitToClient(client, "tracking:error", {
@@ -199,7 +199,7 @@ export class TrackingGateway extends BaseGateway {
   }
 
   /**
-   * 🆕 Récupérer hôpital depuis BDD
+   *  Récupérer hôpital depuis BDD
    */
   private async getHospitalFromDB(callId: string) {
     try {
@@ -215,7 +215,7 @@ export class TrackingGateway extends BaseGateway {
           typeof rawHospital === "string"
             ? JSON.parse(rawHospital)
             : rawHospital;
-        this.logger.log(`🏥 Hôpital BDD: ${hospital.name}`);
+        this.logger.log(` Hôpital BDD: ${hospital.name}`);
         return {
           name: hospital.name,
           address: hospital.address,
@@ -237,7 +237,7 @@ export class TrackingGateway extends BaseGateway {
   }
 
   /**
-   * 🆕 Récupérer ETA depuis BDD
+   *  Récupérer ETA depuis BDD
    */
   private async getETAFromDB(callId: string): Promise<number | undefined> {
     try {

@@ -53,11 +53,11 @@ export class SupabaseAssignmentRepository {
     }
 
     if (error) {
-      this.logger.error(`❌ Failed to assign ambulance: ${error.message}`);
+      this.logger.error(` Failed to assign ambulance: ${error.message}`);
       throw new Error(`Database error: ${error.message}`);
     }
 
-    this.logger.log(`✅ Ambulance assigned to call ${payload.callId}`);
+    this.logger.log(` Ambulance assigned to call ${payload.callId}`);
     return assignmentData;
   }
 }

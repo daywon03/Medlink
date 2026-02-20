@@ -1,7 +1,41 @@
 import { Body, Controller, Post } from "@nestjs/common";
+import { IsOptional, IsString, IsNumber, Min, Max, IsIn } from "class-validator";
+import { Type } from "class-transformer";
 import { GeocodingService } from "../services/geocoding.service";
 
 type PriorityInput = "P0" | "P1" | "P2" | "P3" | number | undefined;
+
+export class GetNearestHospitalDto {
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  lng?: number;
+
+  @IsOptional()
+  priority?: PriorityInput;
+}
+
+export class GetNearestAmbulanceDto {
+  @IsNumber()
+  @Type(() => Number)
+  lat: number;
+
+  @IsNumber()
+  @Type(() => Number)
+  lng: number;
+
+  @IsOptional()
+  priority?: PriorityInput;
+}
 
 @Controller("api/hospitals")
 export class HospitalsController {
@@ -12,15 +46,7 @@ export class HospitalsController {
    * Body: { address?: string, lat?: number, lng?: number, priority?: 'P0'|'P1'|'P2'|'P3'|number }
    */
   @Post("nearest")
-  async getNearestHospital(
-    @Body()
-    body: {
-      address?: string;
-      lat?: number;
-      lng?: number;
-      priority?: PriorityInput;
-    },
-  ) {
+  async getNearestHospital(@Body() body: GetNearestHospitalDto) {
     const { address, lat, lng, priority } = body || {};
 
     if (!address && (lat == null || lng == null)) {
@@ -49,7 +75,7 @@ export class HospitalsController {
     return {
       success: true,
       nearestHospital,
-      hospitals, // 🆕 Return full list
+      hospitals, //  Return full list
       patientLocation: location,
       eta,
     };
@@ -61,14 +87,7 @@ export class HospitalsController {
    * Trouve la station ambulance/SMUR la plus proche des coords patient
    */
   @Post("nearest-ambulance")
-  async getNearestAmbulance(
-    @Body()
-    body: {
-      lat: number;
-      lng: number;
-      priority?: PriorityInput;
-    },
-  ) {
+  async getNearestAmbulance(@Body() body: GetNearestAmbulanceDto) {
     const { lat, lng, priority } = body || {};
 
     if (lat == null || lng == null) {

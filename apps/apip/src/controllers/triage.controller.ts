@@ -52,7 +52,7 @@ export class TriageController {
         ai_model: triage.ai_model_version,
         validated: triage.validated_by_doctor,
         created_at: triage.created_at,
-        // 🆕 Geocoding data
+        //  Geocoding data
         nearest_hospital_data: nearestHospital,
         patient_location: patientLocation,
         estimated_arrival_minutes: triage.estimated_arrival_minutes,

@@ -55,7 +55,7 @@ export class ElevenLabsRealtimeService {
       });
 
       ws.on("open", () => {
-        this.logger.log(`🔗 ElevenLabs Realtime connected for call: ${callId}`);
+        this.logger.log(` ElevenLabs Realtime connected for call: ${callId}`);
       });
 
       ws.on("message", (data: WebSocket.Data) => {
@@ -64,31 +64,31 @@ export class ElevenLabsRealtimeService {
 
           // Log TOUS les messages pour debugging
           this.logger.log(
-            `📨 ElevenLabs message type: ${message.message_type}`,
+            ` ElevenLabs message type: ${message.message_type}`,
           );
 
           switch (message.message_type) {
             case "session_started":
-              this.logger.log(`✅ Session started: ${message.session_id}`);
+              this.logger.log(` Session started: ${message.session_id}`);
               resolve(); // Connection ready
               break;
 
             case "partial_transcript":
               // Live transcript - can be used for real-time display
               if (message.text && message.text.trim()) {
-                this.logger.log(`📝 Partial: "${message.text}"`);
+                this.logger.log(` Partial: "${message.text}"`);
               }
               break;
 
             case "committed_transcript":
               // Final transcript for this segment
-              this.logger.log(`📨 Full message: ${JSON.stringify(message)}`); // DEBUG
+              this.logger.log(` Full message: ${JSON.stringify(message)}`); // DEBUG
 
               if (message.text && message.text.trim()) {
-                this.logger.log(`✅ Committed: "${message.text}"`);
+                this.logger.log(` Committed: "${message.text}"`);
                 onTranscript(message.text);
               } else {
-                this.logger.warn("⚠️  Empty committed transcript!");
+                this.logger.warn("️  Empty committed transcript!");
                 this.logger.warn(
                   `   Message keys: ${Object.keys(message).join(", ")}`,
                 );
@@ -101,7 +101,7 @@ export class ElevenLabsRealtimeService {
             case "input_error":
             case "error":
               this.logger.error(
-                `❌ Error: ${message.error || "Unknown error"}`,
+                ` Error: ${message.error || "Unknown error"}`,
               );
               break;
 
@@ -120,7 +120,7 @@ export class ElevenLabsRealtimeService {
 
       ws.on("close", () => {
         this.logger.log(
-          `🔴 ElevenLabs Realtime disconnected for call: ${callId}`,
+          ` ElevenLabs Realtime disconnected for call: ${callId}`,
         );
         this.connections.delete(callId);
         this.transcriptCallbacks.delete(callId);
@@ -137,7 +137,7 @@ export class ElevenLabsRealtimeService {
       const keepaliveTimer = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.ping();
-          this.logger.debug(`💓 Keepalive ping sent for call: ${callId}`);
+          this.logger.debug(` Keepalive ping sent for call: ${callId}`);
         }
       }, 60000); // 60 secondes
 
@@ -157,7 +157,7 @@ export class ElevenLabsRealtimeService {
     const ws = this.connections.get(callId);
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      this.logger.warn(`⚠️  No active connection for call: ${callId}`);
+      this.logger.warn(`️  No active connection for call: ${callId}`);
       return;
     }
 
@@ -177,7 +177,7 @@ export class ElevenLabsRealtimeService {
 
       ws.send(JSON.stringify(audioMessage));
       this.logger.log(
-        `🎵 Sent ${pcmBuffer.length} bytes PCM to ElevenLabs (VAD auto-commit)`,
+        ` Sent ${pcmBuffer.length} bytes PCM to ElevenLabs (VAD auto-commit)`,
       );
     } catch (error) {
       this.logger.error(`Failed to send audio: ${error.message}`);
@@ -204,17 +204,17 @@ export class ElevenLabsRealtimeService {
       // Write WebM to temp file
       await fs.promises.writeFile(inputPath, webmBuffer);
       this.logger.log(
-        `📁 Wrote WebM to: ${inputPath} (${webmBuffer.length} bytes)`,
+        ` Wrote WebM to: ${inputPath} (${webmBuffer.length} bytes)`,
       );
 
       // Convert using ffmpeg: WebM → PCM 16kHz, 16-bit, mono
       const ffmpegCmd = `ffmpeg -hide_banner -i "${inputPath}" -f s16le -ar 16000 -ac 1 "${outputPath}" -y`;
 
-      this.logger.log(`🎬 Running: ${ffmpegCmd}`);
+      this.logger.log(` Running: ${ffmpegCmd}`);
       const { stdout, stderr } = await execAsync(ffmpegCmd);
 
       if (stderr) {
-        this.logger.warn(`⚠️  ffmpeg stderr: ${stderr}`);
+        this.logger.warn(`️  ffmpeg stderr: ${stderr}`);
       }
 
       // Read converted PCM file
@@ -230,7 +230,7 @@ export class ElevenLabsRealtimeService {
       await fs.promises.unlink(outputPath).catch(() => {});
 
       this.logger.log(
-        `✅ Converted WebM(${webmBuffer.length}b) → PCM(${pcmBuffer.length}b)`,
+        ` Converted WebM(${webmBuffer.length}b) → PCM(${pcmBuffer.length}b)`,
       );
       return pcmBuffer;
     } catch (error) {
@@ -238,7 +238,7 @@ export class ElevenLabsRealtimeService {
       await fs.promises.unlink(inputPath).catch(() => {});
       await fs.promises.unlink(outputPath).catch(() => {});
 
-      this.logger.error(`⚠️  ffmpeg conversion failed: ${error.message}`);
+      this.logger.error(`️  ffmpeg conversion failed: ${error.message}`);
       this.logger.error(`Full error: ${error.stack}`);
       throw error;
     }
@@ -260,7 +260,7 @@ export class ElevenLabsRealtimeService {
       this.connections.delete(callId);
       this.transcriptCallbacks.delete(callId);
       this.logger.log(
-        `🔌 Disconnected ElevenLabs Realtime for call: ${callId}`,
+        ` Disconnected ElevenLabs Realtime for call: ${callId}`,
       );
     }
   }
@@ -284,6 +284,6 @@ export class ElevenLabsRealtimeService {
     };
 
     ws.send(JSON.stringify(message));
-    this.logger.log(`✅ Committed segment for call: ${callId}`);
+    this.logger.log(` Committed segment for call: ${callId}`);
   }
 }

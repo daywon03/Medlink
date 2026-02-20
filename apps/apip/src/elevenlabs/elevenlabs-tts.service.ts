@@ -13,7 +13,7 @@ export class ElevenLabsTTSService {
   constructor() {
     this.apiKey = process.env.ELEVENLABS_API_KEY || "";
     if (!this.apiKey) {
-      this.logger.warn("⚠️  ELEVENLABS_API_KEY non défini");
+      this.logger.warn("️  ELEVENLABS_API_KEY non défini");
     }
   }
 
@@ -29,7 +29,7 @@ export class ElevenLabsTTSService {
 
     try {
       this.logger.log(
-        `🔊 TTS: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`,
+        ` TTS: "${text.substring(0, 50)}${text.length > 50 ? "..." : ""}"`,
       );
 
       const response = await fetch(`${this.apiUrl}/${this.voiceId}`, {
@@ -53,7 +53,7 @@ export class ElevenLabsTTSService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        this.logger.error(`❌ TTS error ${response.status}: ${errorText}`);
+        this.logger.error(` TTS error ${response.status}: ${errorText}`);
 
         if (response.status === 401) {
           throw new Error("Clé API ElevenLabs invalide");
@@ -65,11 +65,11 @@ export class ElevenLabsTTSService {
       }
 
       const audioBuffer = await response.arrayBuffer();
-      this.logger.log(`✅ Audio généré: ${audioBuffer.byteLength} bytes`);
+      this.logger.log(` Audio généré: ${audioBuffer.byteLength} bytes`);
 
       return Buffer.from(audioBuffer);
     } catch (error) {
-      this.logger.error(`❌ Erreur TTS: ${error.message}`);
+      this.logger.error(` Erreur TTS: ${error.message}`);
       throw error;
     }
   }
@@ -99,10 +99,10 @@ export class ElevenLabsTTSService {
           voice.name.toLowerCase().includes("french"),
       );
 
-      this.logger.log(`🎤 ${frenchVoices.length} voix françaises disponibles`);
+      this.logger.log(` ${frenchVoices.length} voix françaises disponibles`);
       return frenchVoices;
     } catch (error) {
-      this.logger.error("❌ Erreur récupération voix:", error.message);
+      this.logger.error(" Erreur récupération voix:", error.message);
       throw error;
     }
   }
@@ -113,6 +113,6 @@ export class ElevenLabsTTSService {
    */
   setVoice(voiceId: string): void {
     this.voiceId = voiceId;
-    this.logger.log(`🎤 Voix changée: ${voiceId}`);
+    this.logger.log(` Voix changée: ${voiceId}`);
   }
 }

@@ -35,12 +35,12 @@ interface Incident {
   nearestHospital?: Hospital;
   eta?: number | null;
   isActive?: boolean;
-  // 🆕 Assignment fields
+  //  Assignment fields
   assignedTeam?: string;
   trackingToken?: string;
   assignmentStatus?: string;
   logs?: string;
-  // 🆕 AI Extracted Data
+  //  AI Extracted Data
   extractedData?: {
     patientAge?: number | null;
     patientGender?: string;
@@ -219,7 +219,7 @@ export default function ArmPage() {
   }
 
   async function applyHospitalAssignment(incident: Incident, hospital: Hospital, eta: number | null) {
-    const noteSuffix = `\n🏥 Hôpital assigné: ${hospital.name}`;
+    const noteSuffix = `\n Hôpital assigné: ${hospital.name}`;
     setIncidents((prev) =>
       prev.map((i) =>
         i.id === incident.id
@@ -244,7 +244,7 @@ export default function ArmPage() {
         : i
     );
 
-    // 🆕 Update also closed incidents if present
+    //  Update also closed incidents if present
     setClosedIncidents((prev) =>
       prev.map((i) =>
         i.id === incident.id
@@ -328,11 +328,11 @@ export default function ArmPage() {
   const [hospitalLoading, setHospitalLoading] = useState(false);
   const [hospitalError, setHospitalError] = useState("");
   const [hospitalResult, setHospitalResult] = useState<Hospital | null>(null);
-  const [hospitalResults, setHospitalResults] = useState<Hospital[]>([]); // 🆕 List of candidates
+  const [hospitalResults, setHospitalResults] = useState<Hospital[]>([]); //  List of candidates
   const [hospitalEta, setHospitalEta] = useState<number | null>(null);
   const [hospitalSaved, setHospitalSaved] = useState(false);
 
-  // 🆕 Ambulance state
+  //  Ambulance state
   const [ambulanceStation, setAmbulanceStation] = useState<Hospital | null>(null);
   const [ambulanceEta, setAmbulanceEta] = useState<number | null>(null);
   const [ambulanceLoading, setAmbulanceLoading] = useState(false);
@@ -403,9 +403,9 @@ export default function ArmPage() {
         }
       });
 
-      // 🆕 Écouter updates appels temps réel
+      //  Écouter updates appels temps réel
       s.on('call:update', (data: any) => {
-        console.log('📡 Call update received:', data);
+        console.log(' Call update received:', data);
 
         setIncidents(prev => {
           const index = prev.findIndex(i => i.id === data.callId);
@@ -415,7 +415,7 @@ export default function ArmPage() {
             const updated = [...prev];
             const priorityMap: Record<string, 1 | 2 | 3 | 4 | 5> = { 'P0': 1, 'P1': 2, 'P2': 3, 'P3': 4, 'P5': 5 };
 
-            // 🆕 Parsing intelligent du résumé structuré
+            //  Parsing intelligent du résumé structuré
             const rawSummary = data.summary || "";
             const summaryLines = rawSummary.split('\n').map((l: string) => l.trim()).filter(Boolean);
             const proposedTitle = summaryLines.length > 0 ? summaryLines[0].substring(0, 60) : "";
@@ -430,7 +430,7 @@ export default function ArmPage() {
               title: (isPlaceholder && proposedTitle) ? proposedTitle : currentTitle,
               priority: data.priority ? (priorityMap[data.priority] ?? updated[index].priority) : updated[index].priority,
               notes: rawSummary, // Notes = le texte complet (cumulatif)
-              locationLabel: data.extractedAddress || updated[index].locationLabel, // 🆕 Update location if extracted
+              locationLabel: data.extractedAddress || updated[index].locationLabel, //  Update location if extracted
               status: data.isPartial ? 'en_cours' : 'nouveau'
             };
 
@@ -444,9 +444,9 @@ export default function ArmPage() {
         });
       });
 
-      // 🆕 Écouter mises à jour géolocalisation (recherche async background)
+      //  Écouter mises à jour géolocalisation (recherche async background)
       s.on('call:geolocation', (data: any) => {
-        console.log('📍 Geolocation update received:', data);
+        console.log(' Geolocation update received:', data);
 
         setIncidents(prev => {
           const index = prev.findIndex(i => i.id === data.callId);
@@ -464,11 +464,11 @@ export default function ArmPage() {
               eta: data.eta ?? updated[index].eta,
               // Sauvegarder infos supplémentaires dans notes si hôpital trouvé
               notes: data.nearestHospital
-                ? `${updated[index].notes || ''}\n🏥 Hôpital: ${data.nearestHospital.name} (ETA: ${data.eta || '?'}min)`
+                ? `${updated[index].notes || ''}\n Hôpital: ${data.nearestHospital.name} (ETA: ${data.eta || '?'}min)`
                 : updated[index].notes
             };
 
-            console.log(`✅ Updated incident ${data.callId} with geolocation`);
+            console.log(` Updated incident ${data.callId} with geolocation`);
             return updated;
           }
 
@@ -476,9 +476,9 @@ export default function ArmPage() {
         });
       });
 
-      // 🆕 Écouter les données extraites par IA (extraction structurée Groq)
+      //  Écouter les données extraites par IA (extraction structurée Groq)
       s.on('call:extraction', (data: any) => {
-        console.log('🤖 Extraction data received:', data);
+        console.log(' Extraction data received:', data);
 
         setIncidents(prev => {
           const index = prev.findIndex(i => i.id === data.callId);
@@ -488,7 +488,7 @@ export default function ArmPage() {
               ...updated[index],
               extractedData: data.extractedData,
             };
-            console.log(`✅ Updated incident ${data.callId} with extraction data`);
+            console.log(` Updated incident ${data.callId} with extraction data`);
             return updated;
           }
           return prev;
@@ -518,14 +518,14 @@ export default function ArmPage() {
           ...call,
           nearestHospital: normalizeHospital(call.nearestHospital),
           eta: typeof call.eta === "number" ? call.eta : call.eta != null ? Number(call.eta) : null,
-          // 🆕 Map persisted assignment data
+          //  Map persisted assignment data
           notes: call.assignedTeam
             ? (call.notes || "") + `\nPop: ${call.assignedTeam}` + (call.trackingToken ? ` (Token: ${call.trackingToken})` : "")
             : call.notes,
           logs: call.logs || ""
         }));
 
-        // 🆕 Merge with existing local state to preserve user modifications
+        //  Merge with existing local state to preserve user modifications
         const existingMap = new Map(incidentsRef.current.map(i => [i.id, i]));
         const merged = mapped.map((freshCall: Incident) => {
           const existing = existingMap.get(freshCall.id);
@@ -647,7 +647,7 @@ export default function ArmPage() {
     socket?.emit("arm:action", { type, ...(payload as Record<string, unknown>) });
   }
 
-  // 🆕 Auto-fetch nearest ambulance station
+  //  Auto-fetch nearest ambulance station
   async function fetchNearestAmbulance(incident: Incident) {
     setAmbulanceLoading(true);
     setAmbulanceStation(null);
@@ -720,7 +720,7 @@ export default function ArmPage() {
               notes:
                 (i.notes ?? "") +
                 `\nAssigné: ${assignTeam}` +
-                (hospital ? `\n🏥 Hôpital: ${hospital.name}` : ""),
+                (hospital ? `\n Hôpital: ${hospital.name}` : ""),
             }
           : i
       )
@@ -1118,11 +1118,11 @@ export default function ArmPage() {
                 <div className="noteText">{selected?.notes ?? "Aucune note"}</div>
               </div>
 
-              {/* 🆕 AI Extraction Panel */}
+              {/*  AI Extraction Panel */}
               {selected?.extractedData && (
                 <div className="card" style={{ marginTop: '0.75rem', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
                   <div className="cardHead">
-                    <div className="cardTitle" style={{ fontSize: '0.9rem' }}>🤖 Extraction IA</div>
+                    <div className="cardTitle" style={{ fontSize: '0.9rem' }}> Extraction IA</div>
                     {selected.extractedData.smartPriority && (
                       <span className={`badge ${selected.extractedData.smartPriority <= 'P1' ? 'badgePrioHigh' : selected.extractedData.smartPriority === 'P2' ? 'badgePrioMed' : 'badgePrioLow'}`}>
                         Smart: {selected.extractedData.smartPriority}
@@ -1131,16 +1131,16 @@ export default function ArmPage() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', padding: '0.5rem 1rem 1rem', fontSize: '0.8rem' }}>
                     {selected.extractedData.patientAge != null && (
-                      <div>📅 <span className="muted">Âge:</span> <span className="strong">{selected.extractedData.patientAge} ans</span></div>
+                      <div> <span className="muted">Âge:</span> <span className="strong">{selected.extractedData.patientAge} ans</span></div>
                     )}
                     {selected.extractedData.patientGender && selected.extractedData.patientGender !== 'unknown' && (
-                      <div>👤 <span className="muted">Genre:</span> <span className="strong">{selected.extractedData.patientGender === 'M' ? 'Homme' : 'Femme'}</span></div>
+                      <div> <span className="muted">Genre:</span> <span className="strong">{selected.extractedData.patientGender === 'M' ? 'Homme' : 'Femme'}</span></div>
                     )}
                     <div>🟢 <span className="muted">Conscient:</span> <span className="strong">{selected.extractedData.isConscious === true ? 'Oui' : selected.extractedData.isConscious === false ? 'Non' : '?'}</span></div>
-                    <div>🌬️ <span className="muted">Respire:</span> <span className="strong">{selected.extractedData.isBreathing === true ? 'Oui' : selected.extractedData.isBreathing === false ? 'Non' : '?'}</span></div>
+                    <div>🫁 <span className="muted">Respire:</span> <span className="strong">{selected.extractedData.isBreathing === true ? 'Oui' : selected.extractedData.isBreathing === false ? 'Non' : '?'}</span></div>
                     <div>🩸 <span className="muted">Hémorragie:</span> <span className="strong">{selected.extractedData.hasBleeding === true ? 'Oui' : selected.extractedData.hasBleeding === false ? 'Non' : '?'}</span></div>
                     {selected.extractedData.severityScore != null && (
-                      <div>📊 <span className="muted">Sévérité:</span> <span className="strong">{selected.extractedData.severityScore}/100</span></div>
+                      <div> <span className="muted">Sévérité:</span> <span className="strong">{selected.extractedData.severityScore}/100</span></div>
                     )}
                   </div>
                   {selected.extractedData.symptoms && selected.extractedData.symptoms.length > 0 && (
@@ -1179,7 +1179,7 @@ export default function ArmPage() {
                   setOpenAssign(true);
                   if (selected) fetchNearestAmbulance(selected);
                 }} disabled={!selected}>
-                  🚑 Assigner
+                   Assigner
                 </button>
                 <button className="btn btnGhost" onClick={() => {
                   if (!selected) return;
@@ -1192,13 +1192,13 @@ export default function ArmPage() {
                     fetchNearestHospital(selected);
                   }
                 }} disabled={!selected}>
-                  🏥 Assigner hôpital
+                   Assigner hôpital
                 </button>
                 <button className="btn btnGhost" onClick={() => setOpenEdit(true)} disabled={!selected}>
-                  ✏️ Corriger
+                  ️ Corriger
                 </button>
                 <button className="btn btnGreen" onClick={() => setOpenNotify(true)} disabled={!selected}>
-                  📩 Notifier
+                   Notifier
                 </button>
               </div>
             </div>
@@ -1235,18 +1235,18 @@ export default function ArmPage() {
             Incident: <b className="strong">{selected?.id}</b>
           </div>
 
-          {/* 📍 Adresse patient */}
+          {/*  Adresse patient */}
           <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
-            <div className="muted small">📍 Lieu de l&apos;appel</div>
+            <div className="muted small"> Lieu de l&apos;appel</div>
             <div className="strong">{selected?.locationLabel || 'En attente...'}</div>
             {selected && selected.lat !== 48.8566 && (
               <div className="muted small">{selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}</div>
             )}
           </div>
 
-          {/* 🏥 Hôpital assigné */}
+          {/*  Hôpital assigné */}
           <div style={{ marginTop: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
-            <div className="muted small">🏥 Hôpital de destination</div>
+            <div className="muted small"> Hôpital de destination</div>
             {selectedHospital ? (
               <>
                 <div className="strong">{selectedHospital.name}</div>
@@ -1260,9 +1260,9 @@ export default function ArmPage() {
             )}
           </div>
 
-          {/* 🚑 Ambulance la plus proche */}
+          {/*  Ambulance la plus proche */}
           <div style={{ marginTop: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
-            <div className="muted small">🚑 Ambulance la plus proche</div>
+            <div className="muted small"> Ambulance la plus proche</div>
             {ambulanceLoading ? (
               <div className="muted">Recherche en cours...</div>
             ) : ambulanceStation ? (
@@ -1314,7 +1314,7 @@ export default function ArmPage() {
                 }}
                 style={{ marginTop: "0.75rem", width: "100%" }}
               >
-                📋 Copier le lien
+                 Copier le lien
               </button>
               <button
                 className="btn btnGreen"
@@ -1329,7 +1329,7 @@ export default function ArmPage() {
                 }}
                 style={{ marginTop: "0.75rem", width: "100%" }}
               >
-                📲 Envoyer par SMS
+                 Envoyer par SMS
               </button>
             </div>
           )}
@@ -1387,7 +1387,7 @@ export default function ArmPage() {
           )}
           {hospitalSaved && (
             <div className="muted small" style={{ color: "#10b981" }}>
-              ✅ Hôpital enregistré et envoyé au suivi patient.
+               Hôpital enregistré et envoyé au suivi patient.
             </div>
           )}
 
@@ -1397,7 +1397,7 @@ export default function ArmPage() {
               onClick={() => selected && fetchNearestHospital(selected)}
               disabled={!selected || hospitalLoading}
             >
-              🔄 Rechercher
+               Rechercher
             </button>
             <button
               className="btn btnBlue"
@@ -1408,7 +1408,7 @@ export default function ArmPage() {
               }}
               disabled={!selected || !hospitalResult}
             >
-              ✅ Confirmer l’hôpital
+               Confirmer l’hôpital
             </button>
           </div>
         </div>

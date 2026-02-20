@@ -1,5 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { SupabaseService } from "../supabase/supabase.service";
+import { ExtractedData } from "../domain/entities/extracted-data.entity";
 
 @Controller("api/calls")
 export class CallsController {
@@ -35,6 +36,20 @@ export class CallsController {
             ambulance_team,
             tracking_token,
             status
+          ),
+          call_transcriptions (
+            texte_transcrit,
+            created_at
+          ),
+          call_extracted_data (
+            patient_age,
+            patient_gender,
+            symptoms,
+            medical_history,
+            is_conscious,
+            is_breathing,
+            has_bleeding,
+            extraction_confidence
           )
         `,
         )
@@ -42,7 +57,7 @@ export class CallsController {
         .limit(50);
 
       if (error) {
-        console.error("❌ Error fetching calls:", error);
+        console.error(" Error fetching calls:", error);
         return {
           success: false,
           message: error.message,
@@ -61,7 +76,7 @@ export class CallsController {
             ? call.assignments[0]
             : call.assignments;
 
-          // ✅ Gérer cas pas encore de triage (appel vient de démarrer)
+          //  Gérer cas pas encore de triage (appel vient de démarrer)
           const hasTriage = !!triage;
 
           // Map P0-P3 to 1-4 priority (P0=1, P1=2, P2=3, P3=4)
@@ -69,9 +84,9 @@ export class CallsController {
           const priority =
             hasTriage && triage.priority_classification
               ? priorityMap[triage.priority_classification]
-              : 5; // ✅ P5 = "En cours" (pas encore classé)
+              : 5; //  P5 = "En cours" (pas encore classé)
 
-          // 🆕 Parser données geocoding
+          //  Parser données geocoding
           const hospitalData =
             this.parseMaybeJson(triage?.nearest_hospital_data) || null;
           const location =
@@ -79,7 +94,7 @@ export class CallsController {
           const fireStation =
             this.parseMaybeJson(triage?.fire_station_data) || null;
 
-          return {
+          const payload: any = {
             id: call.call_id,
             createdAt: new Date(call.date_heure)
               .toISOString()
@@ -92,31 +107,68 @@ export class CallsController {
             priority,
             title: hasTriage
               ? triage.ai_explanation?.substring(0, 60) || "Appel traité"
-              : "📞 Appel en cours...", // ✅ Texte par défaut pour appels actifs
+              : " Appel en cours...", //  Texte par défaut pour appels actifs
             locationLabel: location?.address || call.location_input_text || "En attente adresse...",
-            // ✅ Coordonnées réelles depuis geocoding (fallback Paris si pas dispo)
+            //  Coordonnées réelles depuis geocoding (fallback Paris si pas dispo)
             lat: Number(location?.lat ?? 48.8566),
             lng: Number(location?.lng ?? 2.3522),
             symptoms: [],
             notes: hasTriage
               ? triage.ai_explanation || ""
-              : "Collecte informations en cours", // ✅ Notes par défaut
-            // 🆕 Infos hôpital/pompiers/ETA
+              : "Collecte informations en cours", //  Notes par défaut
+            //  Infos hôpital/pompiers/ETA
             nearestHospital: hospitalData,
             nearestFireStation: fireStation,
             eta: triage?.estimated_arrival_minutes || null,
-            // 🆕 Flag appel actif (pour UI)
+            //  Flag appel actif (pour UI)
             isActive: !hasTriage,
-            // 🆕 Assignment data
+            //  Assignment data
             assignedTeam: assignment?.ambulance_team || null,
             trackingToken: assignment?.tracking_token || null,
             assignmentStatus: assignment?.status || null,
-            logs: triage?.ai_explanation || null
+            logs: Array.isArray(call.call_transcriptions) && call.call_transcriptions.length > 0
+              ? call.call_transcriptions
+                  .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                  .map(t => t.texte_transcrit)
+                  .join('\n\n')
+              : (triage?.ai_explanation || "")
           };
+
+          const dbExtracted = Array.isArray(call.call_extracted_data)
+            ? call.call_extracted_data[0]
+            : call.call_extracted_data;
+
+          if (dbExtracted) {
+            const entity = new ExtractedData(
+              "dummy",
+              call.call_id,
+              dbExtracted.patient_age,
+              dbExtracted.patient_gender,
+              dbExtracted.symptoms || [],
+              dbExtracted.medical_history || [],
+              dbExtracted.is_conscious,
+              dbExtracted.is_breathing,
+              dbExtracted.has_bleeding,
+              dbExtracted.extraction_confidence
+            );
+
+            payload.extractedData = {
+              patientAge: dbExtracted.patient_age,
+              patientGender: dbExtracted.patient_gender,
+              symptoms: dbExtracted.symptoms,
+              isConscious: dbExtracted.is_conscious,
+              isBreathing: dbExtracted.is_breathing,
+              hasBleeding: dbExtracted.has_bleeding,
+              confidence: dbExtracted.extraction_confidence,
+              severityScore: entity.calculateSeverityScore()
+            };
+          }
+
+          return payload;
         }),
       };
     } catch (error) {
-      console.error("❌ Exception in getAllCalls:", error);
+      console.error(" Exception in getAllCalls:", error);
       return {
         success: false,
         message: error.message,
@@ -144,8 +196,13 @@ export class CallsController {
           triage_reports (
             priority_classification,
             ai_explanation,
+            data_json_synthese,
             nearest_hospital_data,
             estimated_arrival_minutes
+          ),
+          call_transcriptions (
+            texte_transcrit,
+            created_at
           )
         `
         )
@@ -167,21 +224,58 @@ export class CallsController {
            // Helper to map priority P0-P3
            const priorityMap = { P0: 1, P1: 2, P2: 3, P3: 4 };
 
-           return {
+           const payload: any = {
             id: call.call_id,
             createdAt: new Date(call.date_heure).toISOString().slice(0, 16).replace("T", " "),
             status: "clos",
             priority: triage?.priority_classification ? priorityMap[triage.priority_classification] : 5,
             title: triage?.ai_explanation?.split('\n')[0] || "Appel terminé",
             locationLabel: call.location_input_text || "Adresse inconnue",
-            // Parse lat/lng if available or default
             lat: 48.8566,
             lng: 2.3522,
             symptoms: [],
             notes: triage?.ai_explanation || "",
             nearestHospital: this.parseMaybeJson(triage?.nearest_hospital_data),
             eta: triage?.estimated_arrival_minutes || null,
+            logs: Array.isArray(call.call_transcriptions) && call.call_transcriptions.length > 0
+              ? call.call_transcriptions
+                  .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+                  .map(t => t.texte_transcrit)
+                  .join('\n\n')
+              : (triage?.ai_explanation || "")
           };
+
+          const dbExtracted = Array.isArray(call.call_extracted_data)
+            ? call.call_extracted_data[0]
+            : call.call_extracted_data;
+
+          if (dbExtracted) {
+            const entity = new ExtractedData(
+              "dummy",
+              call.call_id,
+              dbExtracted.patient_age,
+              dbExtracted.patient_gender,
+              dbExtracted.symptoms || [],
+              dbExtracted.medical_history || [],
+              dbExtracted.is_conscious,
+              dbExtracted.is_breathing,
+              dbExtracted.has_bleeding,
+              dbExtracted.extraction_confidence
+            );
+
+            payload.extractedData = {
+              patientAge: dbExtracted.patient_age,
+              patientGender: dbExtracted.patient_gender,
+              symptoms: dbExtracted.symptoms,
+              isConscious: dbExtracted.is_conscious,
+              isBreathing: dbExtracted.is_breathing,
+              hasBleeding: dbExtracted.has_bleeding,
+              confidence: dbExtracted.extraction_confidence,
+              severityScore: entity.calculateSeverityScore()
+            };
+          }
+
+          return payload;
         }),
       };
     } catch (error) {

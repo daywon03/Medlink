@@ -23,13 +23,13 @@ export class RideController {
       throw new NotFoundException({ error: "invalid_token" });
     }
 
-    // ✅ 1. Check in-memory ride data first (live tracking from socket events)
+    //  1. Check in-memory ride data first (live tracking from socket events)
     const liveRide = this.rideService.findByToken(token);
     if (liveRide) {
       return liveRide;
     }
 
-    // ✅ 2. Fall back to DB query
+    //  2. Fall back to DB query
     try {
       const { data: call, error: callError } = await this.supabase["supabase"]
         .from("emergency_calls")

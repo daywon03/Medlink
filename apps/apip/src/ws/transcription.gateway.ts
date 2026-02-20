@@ -15,11 +15,11 @@ interface ClientContext {
 }
 
 @Injectable()
-// ❌ Decorator removed - using manual ws server in main.ts instead
+//  Decorator removed - using manual ws server in main.ts instead
 export class TranscriptionGateway {
   private readonly logger = new Logger(TranscriptionGateway.name);
 
-  // ❌ WebSocketServer removed - will use alternative broadcast method
+  //  WebSocketServer removed - will use alternative broadcast method
   // @WebSocketServer()
   // server: Server;
 
@@ -46,7 +46,7 @@ export class TranscriptionGateway {
   }
 
   handleDisconnect(client: WebSocket) {
-    this.logger.log("🔴 Client déconnecté");
+    this.logger.log(" Client déconnecté");
   }
 
   async handleMessage(client: WebSocket, data: Buffer, isBinary: boolean) {
@@ -55,13 +55,13 @@ export class TranscriptionGateway {
 
       if (!isBinary) {
         const msg = JSON.parse(data.toString());
-        this.logger.log(`📩 Message: ${msg.type}`);
+        this.logger.log(` Message: ${msg.type}`);
 
         if (msg.type === "start_call") {
           try {
             const citizen = await this.supa.createAnonymousCitizen();
             ctx.citizenId = citizen.citizen_id;
-            this.logger.log(`👤 Citoyen créé: ${citizen.citizen_id}`);
+            this.logger.log(` Citoyen créé: ${citizen.citizen_id}`);
 
             const call = await this.supa.createCall({
               citizen_id: citizen.citizen_id,
@@ -69,10 +69,10 @@ export class TranscriptionGateway {
             });
 
             ctx.callId = call.call_id;
-            this.logger.log(`📞 Appel créé: ${call.call_id}`);
+            this.logger.log(` Appel créé: ${call.call_id}`);
           } catch (error) {
             const message = (error as Error).message || "Erreur création appel";
-            this.logger.error(`❌ Échec création appel: ${message}`);
+            this.logger.error(` Échec création appel: ${message}`);
             this.send(client, "error", {
               message: "Impossible de créer l’appel. Vérifiez Supabase.",
             });
@@ -83,19 +83,19 @@ export class TranscriptionGateway {
           await this.elevenLabsRealtime.connectForCall(
             ctx.callId!,
             async (transcribedText: string) => {
-              // ✅ FIX: Ignorer transcripts vides ou trop courts
+              //  FIX: Ignorer transcripts vides ou trop courts
               if (!transcribedText || transcribedText.trim().length < 3) {
                 this.logger.warn(
-                  `⏭️ Transcript ignoré (trop court): "${transcribedText}"`,
+                  `️ Transcript ignoré (trop court): "${transcribedText}"`,
                 );
                 return;
               }
 
               // Callback when transcript is committed
-              this.logger.log(`👤 Patient: "${transcribedText}"`);
+              this.logger.log(` Patient: "${transcribedText}"`);
 
               ctx.fullTranscript += " " + transcribedText;
-              await this.supa.insertTranscription(ctx.callId!, transcribedText);
+              await this.supa.insertTranscription(ctx.callId!, `📞 Appelant : ${transcribedText}`);
 
               // Send to frontend
               this.send(client, "patient_speech", { text: transcribedText });
@@ -115,23 +115,23 @@ export class TranscriptionGateway {
                     armResult.triageData,
                   );
                   this.logger.log(
-                    `📋 Triage sauvegardé: ${armResult.triageData.priority} - "${armResult.triageData.summary.substring(0, 50)}..."`,
+                    ` Triage sauvegardé: ${armResult.triageData.priority} - "${armResult.triageData.summary.substring(0, 50)}..."`,
                   );
 
-                  // ✅ PUBLISH to Redis for ARM dashboard real-time updates
+                  //  PUBLISH to Redis for ARM dashboard real-time updates
                   await this.redis.publish("arm:updates", {
                     callId: ctx.callId,
                     summary: armResult.triageData.summary,
                     priority: armResult.triageData.priority,
                     isPartial: armResult.triageData.isPartial,
                     updatedAt: new Date().toISOString(),
-                    extractedAddress: armResult.triageData.extractedAddress, // 🆕 Add extractedAddress
+                    extractedAddress: armResult.triageData.extractedAddress, //  Add extractedAddress
                   });
 
-                  // ✅ Persist address to DB immediately to avoid "En attente" on refresh
+                  //  Persist address to DB immediately to avoid "En attente" on refresh
                   if (armResult.triageData.extractedAddress) {
                     this.logger.log(
-                      `📍 Redis Push: Address = "${armResult.triageData.extractedAddress}"`,
+                      ` Redis Push: Address = "${armResult.triageData.extractedAddress}"`,
                     );
                     await this.supa.updateCallAddress(
                       ctx.callId!,
@@ -139,7 +139,7 @@ export class TranscriptionGateway {
                     );
                   }
 
-                  this.logger.log(`📡 Published to Redis: arm:updates`);
+                  this.logger.log(` Published to Redis: arm:updates`);
                 } catch (error) {
                   this.logger.error(
                     `Failed to save triage report: ${error.message}`,
@@ -147,7 +147,8 @@ export class TranscriptionGateway {
                 }
               }
 
-              // TTS + send to frontend
+              // TTS + send to frontend + DB save
+              await this.supa.insertTranscription(ctx.callId!, `🤖 MedLink : ${armResult.response}`);
               await this.safeTtsSend(client, armResult.response);
             },
           );
@@ -165,17 +166,17 @@ export class TranscriptionGateway {
 
             if (extractedAddress) {
               await this.supa.updateCallAddress(ctx.callId, extractedAddress);
-              this.logger.log(`📍 Adresse extraite: ${extractedAddress}`);
+              this.logger.log(` Adresse extraite: ${extractedAddress}`);
 
-              // 🆕 GEOCODE ADDRESS + FIND HOSPITALS
+              //  GEOCODE ADDRESS + FIND HOSPITALS
               try {
-                this.logger.log(`🌍 Geocoding adresse...`);
+                this.logger.log(` Geocoding adresse...`);
                 const location =
                   await this.geocoding.geocodeAddress(extractedAddress);
 
                 if (location) {
                   this.logger.log(
-                    `✅ Coordonnées: ${location.lat}, ${location.lng}`,
+                    ` Coordonnées: ${location.lat}, ${location.lng}`,
                   );
 
                   // Trouver hôpitaux les plus proches
@@ -191,7 +192,7 @@ export class TranscriptionGateway {
                     ); // ~30km/h en ville
 
                     this.logger.log(
-                      `🏥 Hôpital le plus proche: ${nearestHospital.name} (${nearestHospital.distance.toFixed(1)}km, ETA: ${etaMinutes}min)`,
+                      ` Hôpital le plus proche: ${nearestHospital.name} (${nearestHospital.distance.toFixed(1)}km, ETA: ${etaMinutes}min)`,
                     );
 
                     // Récupérer le dernier triage report pour update
@@ -223,17 +224,17 @@ export class TranscriptionGateway {
                       });
 
                       this.logger.log(
-                        `✅ Triage report updated avec geocoding data`,
+                        ` Triage report updated avec geocoding data`,
                       );
                     }
                   } else {
                     this.logger.warn(
-                      `⚠️ Aucun hôpital trouvé dans un rayon de 15km`,
+                      `️ Aucun hôpital trouvé dans un rayon de 15km`,
                     );
                   }
                 } else {
                   this.logger.warn(
-                    `⚠️ Geocoding échoué pour: ${extractedAddress}`,
+                    `️ Geocoding échoué pour: ${extractedAddress}`,
                   );
                 }
               } catch (geoError) {
@@ -243,7 +244,7 @@ export class TranscriptionGateway {
             }
 
             await this.supa.finishCall(ctx.callId);
-            this.logger.log(`✅ Appel terminé: ${ctx.callId}`);
+            this.logger.log(` Appel terminé: ${ctx.callId}`);
           }
 
           this.send(client, "info", { message: "Appel terminé." });
@@ -251,7 +252,7 @@ export class TranscriptionGateway {
       } else {
         // Binary audio chunk - send directly to ElevenLabs Realtime WebSocket
         if (!ctx.callId) {
-          this.logger.warn("⚠️  Audio received before call creation");
+          this.logger.warn("️  Audio received before call creation");
           return;
         }
         // Binary data = audio chunk from frontend
@@ -264,19 +265,19 @@ export class TranscriptionGateway {
 
             if (!hasConnection) {
               this.logger.warn(
-                `🔄 ElevenLabs déconnecté, reconnexion pour: ${ctx.callId}`,
+                ` ElevenLabs déconnecté, reconnexion pour: ${ctx.callId}`,
               );
 
               // Reconnect ElevenLabs avec le même callback
               await this.elevenLabsRealtime.connectForCall(
                 ctx.callId,
                 async (transcribedText: string) => {
-                  this.logger.log(`👤 Patient: "${transcribedText}"`);
+                  this.logger.log(` Patient: "${transcribedText}"`);
 
                   ctx.fullTranscript += " " + transcribedText;
                   await this.supa.insertTranscription(
                     ctx.callId!,
-                    transcribedText,
+                    `📞 Appelant : ${transcribedText}`,
                   );
 
                   this.send(client, "patient_speech", {
@@ -303,22 +304,26 @@ export class TranscriptionGateway {
                     }
                   }
 
+                  await this.supa.insertTranscription(
+                    ctx.callId!,
+                    `🤖 MedLink : ${armResult.response}`
+                  );
                   await this.safeTtsSend(client, armResult.response);
                 },
               );
 
-              this.logger.log(`✅ ElevenLabs reconnecté pour: ${ctx.callId}`);
+              this.logger.log(` ElevenLabs reconnecté pour: ${ctx.callId}`);
             }
 
             // Envoyer l'audio à ElevenLabs
             await this.elevenLabsRealtime.sendAudioChunk(ctx.callId, data);
           } catch (error) {
-            this.logger.error(`❌ Erreur audio: ${error.message}`);
+            this.logger.error(` Erreur audio: ${error.message}`);
           }
         }
       }
     } catch (e) {
-      this.logger.error(`❌ Erreur handleMessage: ${e.message}`);
+      this.logger.error(` Erreur handleMessage: ${e.message}`);
     }
   }
 
@@ -369,13 +374,13 @@ export class TranscriptionGateway {
   private async safeTtsSend(client: WebSocket, text: string) {
     try {
       this.logger.log(
-        `🔊 Agent parle: "${text.substring(0, 80)}${text.length > 80 ? "..." : ""}"`,
+        ` Agent parle: "${text.substring(0, 80)}${text.length > 80 ? "..." : ""}"`,
       );
       const audioBuffer = await this.tts.textToSpeech(text);
       const audioBase64 = audioBuffer.toString("base64");
       this.send(client, "agent_speech", { text, audio: audioBase64 });
     } catch (error) {
-      this.logger.error(`❌ TTS failed: ${(error as Error).message}`);
+      this.logger.error(` TTS failed: ${(error as Error).message}`);
       this.send(client, "agent_speech", { text, audio: null, ttsError: true });
     }
   }

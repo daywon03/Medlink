@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.57.4",
     "dotenv": "^17.2.2",
     "jspdf": "^2.5.2",

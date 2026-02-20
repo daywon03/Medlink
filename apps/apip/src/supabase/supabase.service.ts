@@ -41,7 +41,7 @@ export class SupabaseService {
       .single();
 
     if (error) {
-      console.error("❌ Erreur createAnonymousCitizen:", error);
+      console.error(" Erreur createAnonymousCitizen:", error);
       throw error;
     }
 
@@ -70,7 +70,7 @@ export class SupabaseService {
       .single();
 
     if (error) {
-      console.error("❌ Erreur createCall:", error);
+      console.error(" Erreur createCall:", error);
       throw error;
     }
 
@@ -85,7 +85,7 @@ export class SupabaseService {
       .eq("call_id", call_id);
 
     if (error) {
-      console.error("❌ Erreur updateCallAddress:", error);
+      console.error(" Erreur updateCallAddress:", error);
       throw error;
     }
   }
@@ -97,7 +97,7 @@ export class SupabaseService {
       .insert([{ call_id, texte_transcrit }]);
 
     if (error) {
-      console.error("❌ Erreur insertTranscription:", error);
+      console.error(" Erreur insertTranscription:", error);
       throw error;
     }
   }
@@ -110,7 +110,7 @@ export class SupabaseService {
       .eq("call_id", call_id);
 
     if (error) {
-      console.error("❌ Erreur finishCall:", error);
+      console.error(" Erreur finishCall:", error);
       throw error;
     }
   }
@@ -131,13 +131,13 @@ export class SupabaseService {
       confidence: number;
       symptoms?: string[];
       vitalEmergency?: boolean;
-      isPartial?: boolean; // 🆕 Flag résumé partiel
-      // 🆕 Geocoding data
+      isPartial?: boolean; //  Flag résumé partiel
+      //  Geocoding data
       nearestHospital?: any;
       nearestFireStation?: any;
       patientLocation?: any;
       eta?: number;
-      // 🆕 Agent advice (conseils détaillés)
+      //  Agent advice (conseils détaillés)
       agentAdvice?: string; // Réponse complète de l'agent avec conseils
     },
   ) {
@@ -157,7 +157,7 @@ export class SupabaseService {
           ai_explanation: triageData.summary,
           classification_confidence: triageData.confidence,
           ai_model_version: "groq/compound",
-          // 🆕 Sauvegarder données geocoding
+          //  Sauvegarder données geocoding
           nearest_hospital_data: triageData.nearestHospital
             ? JSON.stringify(triageData.nearestHospital)
             : null,
@@ -168,7 +168,7 @@ export class SupabaseService {
             ? JSON.stringify(triageData.patientLocation)
             : null,
           estimated_arrival_minutes: triageData.eta || null,
-          // 🆕 Sauvegarder conseils agent
+          //  Sauvegarder conseils agent
           data_json_synthese: triageData.agentAdvice
             ? JSON.stringify({ advice: triageData.agentAdvice })
             : null,
@@ -179,7 +179,7 @@ export class SupabaseService {
         .single();
 
       if (error) {
-        console.error("❌ Erreur updateTriageReport:", error);
+        console.error(" Erreur updateTriageReport:", error);
         throw error;
       }
 
@@ -197,7 +197,7 @@ export class SupabaseService {
             classification_source: "ai_agent",
             ai_model_version: "groq/compound",
             validated_by_doctor: false,
-            // 🆕 Sauvegarder données geocoding
+            //  Sauvegarder données geocoding
             nearest_hospital_data: triageData.nearestHospital
               ? JSON.stringify(triageData.nearestHospital)
               : null,
@@ -208,7 +208,7 @@ export class SupabaseService {
               ? JSON.stringify(triageData.patientLocation)
               : null,
             estimated_arrival_minutes: triageData.eta || null,
-            // 🆕 Sauvegarder conseils agent
+            //  Sauvegarder conseils agent
             data_json_synthese: triageData.agentAdvice
               ? JSON.stringify({ advice: triageData.agentAdvice })
               : null,
@@ -218,7 +218,7 @@ export class SupabaseService {
         .single();
 
       if (error) {
-        console.error("❌ Erreur createTriageReport:", error);
+        console.error(" Erreur createTriageReport:", error);
         throw error;
       }
 
@@ -238,7 +238,7 @@ export class SupabaseService {
 
     if (error && error.code !== "PGRST116") {
       // Ignore "not found"
-      console.error("❌ Erreur getTriageReport:", error);
+      console.error(" Erreur getTriageReport:", error);
     }
 
     return data;

@@ -29,7 +29,7 @@ export default function VoicePage() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log("✅ WebSocket connecté");
+        console.log(" WebSocket connecté");
         ws.send(JSON.stringify({ type: "start_call" }));
         setCallStatus("Connexion établie");
       };
@@ -63,11 +63,11 @@ export default function VoicePage() {
             text: agentText
           }]);
 
-          // ⏸️ PAUSE micro pendant que l'agent parle
+          // ️ PAUSE micro pendant que l'agent parle
           setAgentSpeaking(true);
           if (mediaRecorderRef.current?.state === "recording") {
             mediaRecorderRef.current.pause();
-            console.log("⏸️ Micro mis en pause (agent parle)");
+            console.log("️ Micro mis en pause (agent parle)");
           }
 
           // Play agent audio
@@ -77,7 +77,7 @@ export default function VoicePage() {
             const audio = new Audio(audioUrl);
 
             audio.play().catch(err => {
-              console.error("❌ Error playing audio:", err);
+              console.error(" Error playing audio:", err);
               setAgentSpeaking(false);
               if (mediaRecorderRef.current?.state === "paused") {
                 mediaRecorderRef.current.resume();
@@ -85,11 +85,11 @@ export default function VoicePage() {
             });
 
             audio.onended = () => {
-              console.log("✅ Audio terminé, reprise micro");
+              console.log(" Audio terminé, reprise micro");
               setAgentSpeaking(false);
               if (mediaRecorderRef.current?.state === "paused") {
                 mediaRecorderRef.current.resume();
-                console.log("▶️ Micro réactivé");
+                console.log("️ Micro réactivé");
 
                 setTimeout(() => {
                   if (mediaRecorderRef.current?.state === 'recording') {
@@ -101,7 +101,7 @@ export default function VoicePage() {
             };
 
           } catch (error) {
-            console.error("❌ Error decoding/playing audio:", error);
+            console.error(" Error decoding/playing audio:", error);
             setAgentSpeaking(false);
             if (mediaRecorderRef.current?.state === "paused") {
               mediaRecorderRef.current.resume();
@@ -115,17 +115,17 @@ export default function VoicePage() {
         }
 
         if (message.type === "info") {
-          console.log("ℹ️", message.payload.message);
+          console.log("️", message.payload.message);
         }
       };
 
       ws.onerror = (err) => {
-        console.error("❌ WebSocket error:", err);
+        console.error(" WebSocket error:", err);
         setCallStatus("Erreur de connexion");
       };
 
       ws.onclose = () => {
-        console.log("🔴 WebSocket closed");
+        console.log(" WebSocket closed");
         setCallStatus("Déconnecté");
       };
 
@@ -150,7 +150,7 @@ export default function VoicePage() {
       mediaRecord.onstop = async () => {
         if (audioChunksRef.current.length > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
           const completeBlob = new Blob(audioChunksRef.current, { type: mimeType });
-          console.log(`🎵 Sending complete audio: ${completeBlob.size} bytes`);
+          console.log(` Sending complete audio: ${completeBlob.size} bytes`);
 
           const arrayBuf = await completeBlob.arrayBuffer();
           wsRef.current.send(arrayBuf);
@@ -161,7 +161,7 @@ export default function VoicePage() {
         if (mediaRecorderRef.current && mediaRecorderRef.current.stream.active) {
           setTimeout(() => {
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'recording') {
-              console.log('🔄 Restarting recording cycle...');
+              console.log(' Restarting recording cycle...');
               mediaRecorderRef.current.start();
 
               setTimeout(() => {
@@ -185,7 +185,7 @@ export default function VoicePage() {
       setRecording(true);
 
     } catch (error) {
-      console.error('❌ Erreur:', error);
+      console.error(' Erreur:', error);
       alert("Impossible d'accéder au microphone");
     }
   };
@@ -225,8 +225,8 @@ export default function VoicePage() {
               <div className="noteBox">
                 <div className="muted small">Statut</div>
                 <div className="strong">{callStatus}</div>
-                {agentSpeaking && <div className="noteText">🗣️ L'agent parle...</div>}
-                {recording && !agentSpeaking && <div className="noteText">🎤 Vous parlez...</div>}
+                {agentSpeaking && <div className="noteText">️ L'agent parle...</div>}
+                {recording && !agentSpeaking && <div className="noteText"> Vous parlez...</div>}
                 {!recording && <div className="noteText">🟢 Prêt a lancer l'appel</div>}
               </div>
 
@@ -236,7 +236,7 @@ export default function VoicePage() {
                   onClick={recording ? stopCall : startCall}
                   style={{ gridColumn: "1 / -1" }}
                 >
-                  {recording ? "📞 Raccrocher" : "📞 Appeler le 15"}
+                  {recording ? " Raccrocher" : " Appeler le 15"}
                 </button>
               </div>
             </div>
@@ -256,7 +256,7 @@ export default function VoicePage() {
                 ) : (
                   conversation.map((msg, idx) => (
                     <div className="noteBox" key={`${msg.role}-${idx}`}>
-                      <div className="muted small">{msg.role === "patient" ? "👤 Vous" : "🚑 Agent ARM"}</div>
+                      <div className="muted small">{msg.role === "patient" ? " Vous" : " Agent ARM"}</div>
                       <div className="noteText">{msg.text}</div>
                     </div>
                   ))
