@@ -1,28 +1,30 @@
-
 import { Injectable, Logger } from '@nestjs/common';
-import { SupabaseService } from '../supabase/supabase.service';
+import { SupabaseService } from '../../supabase/supabase.service';
 
+/**
+ * Infrastructure Layer: Assignment Repository
+ * Manages ambulance assignments to calls
+ */
 @Injectable()
-export class CallsService {
-  private readonly logger = new Logger(CallsService.name);
+export class SupabaseAssignmentRepository {
+  private readonly logger = new Logger(SupabaseAssignmentRepository.name);
 
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(private readonly supabaseService: SupabaseService) {}
 
-  /**
-   * Assign an ambulance to a call correctly persisting data
-   */
+  private get client() {
+    return this.supabaseService['supabase'];
+  }
+
   async assignAmbulance(payload: {
     callId: string;
     ambulanceTeam: string;
     trackingToken?: string;
   }) {
-    // Validate payload
     if (!payload.callId || !payload.ambulanceTeam) {
       throw new Error('Missing callId or ambulanceTeam');
     }
 
-    // Check if assignment exists
-    const { data: existing } = await this.supabase['supabase']
+    const { data: existing } = await this.client
       .from('assignments')
       .select('assignment_id')
       .eq('call_id', payload.callId)
@@ -31,30 +33,27 @@ export class CallsService {
     const assignmentData = {
       call_id: payload.callId,
       ambulance_team: payload.ambulanceTeam,
-      tracking_token:
-        payload.trackingToken || Math.random().toString(36).substring(7),
+      tracking_token: payload.trackingToken || Math.random().toString(36).substring(7),
       status: 'assigned',
       updated_at: new Date().toISOString(),
     };
 
     let error;
     if (existing) {
-      // Update existing
-      const res = await this.supabase['supabase']
+      const res = await this.client
         .from('assignments')
         .update(assignmentData)
         .eq('assignment_id', existing.assignment_id);
       error = res.error;
     } else {
-      // Insert new
-      const res = await this.supabase['supabase']
+      const res = await this.client
         .from('assignments')
         .insert(assignmentData);
       error = res.error;
     }
 
     if (error) {
-      this.logger.error(`Failed to assign ambulance: ${error.message}`);
+      this.logger.error(`❌ Failed to assign ambulance: ${error.message}`);
       throw new Error(`Database error: ${error.message}`);
     }
 

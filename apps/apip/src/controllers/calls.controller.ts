@@ -25,7 +25,7 @@ export class CallsController {
           triage_reports (
             priority_classification,
             ai_explanation,
-            transcript,
+            data_json_synthese,
             nearest_hospital_data,
             fire_station_data,
             patient_location,
@@ -87,7 +87,8 @@ export class CallsController {
               .replace("T", " "),
             createdAtRaw: call.date_heure,
             updatedAtRaw: call.updated_at,
-            status: call.status || (hasTriage ? "nouveau" : "en_cours"), // ✅ "en_cours" si pas de triage
+            // Map DB status to frontend IncidentStatus: "closed" → "clos"
+            status: call.status === "closed" ? "clos" : (call.status || (hasTriage ? "nouveau" : "en_cours")),
             priority,
             title: hasTriage
               ? triage.ai_explanation?.substring(0, 60) || "Appel traité"
@@ -110,7 +111,7 @@ export class CallsController {
             assignedTeam: assignment?.ambulance_team || null,
             trackingToken: assignment?.tracking_token || null,
             assignmentStatus: assignment?.status || null,
-            logs: triage?.transcript || null
+            logs: triage?.ai_explanation || null
           };
         }),
       };
@@ -169,7 +170,7 @@ export class CallsController {
            return {
             id: call.call_id,
             createdAt: new Date(call.date_heure).toISOString().slice(0, 16).replace("T", " "),
-            status: "terminé",
+            status: "clos",
             priority: triage?.priority_classification ? priorityMap[triage.priority_classification] : 5,
             title: triage?.ai_explanation?.split('\n')[0] || "Appel terminé",
             locationLabel: call.location_input_text || "Adresse inconnue",

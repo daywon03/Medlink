@@ -8,7 +8,7 @@ import { Socket } from "socket.io";
 import { BaseGateway } from "./base.gateway";
 import type { ArmActionPayload } from "../types";
 import { RedisService } from "../services/redis.service";
-import { CallsService } from "../services/calls.service";
+import { SupabaseAssignmentRepository } from "../infrastructure/repositories/supabase-assignment.repository";
 
 /**
  * ARM Gateway - Handles WebSocket events for the ARM console (/arm)
@@ -25,7 +25,7 @@ import { CallsService } from "../services/calls.service";
 export class ArmGateway extends BaseGateway {
   constructor(
     private readonly redis: RedisService,
-    private readonly callsService: CallsService
+    private readonly assignmentRepo: SupabaseAssignmentRepository
   ) {
     super("ArmGateway");
 
@@ -51,8 +51,17 @@ export class ArmGateway extends BaseGateway {
       );
     });
 
+    // 🆕 Subscribe to Redis arm:extraction channel (AI structured data extraction)
+    this.redis.subscribe("arm:extraction", (data: any) => {
+      this.logger.log(`🤖 Extraction received from Redis: ${data.callId}`);
+      this.broadcast("call:extraction", data);
+      this.logger.log(
+        `✅ Extraction broadcasted: Age=${data.extractedData?.patientAge}, Symptoms=[${data.extractedData?.symptoms?.join(', ') || ''}]`,
+      );
+    });
+
     this.logger.log(
-      "✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation channels",
+      "✅ ArmGateway subscribed to Redis arm:updates + arm:geolocation + arm:extraction channels",
     );
   }
 
@@ -76,15 +85,18 @@ export class ArmGateway extends BaseGateway {
     try {
       this.logger.log(`📋 ARM action received: ${payload.type}`);
 
-      // 🆕 Persist assignment using CallsService (Clean)
+      // ✅ Persist assignment using SupabaseAssignmentRepository (Clean Architecture)
       if (payload.type === 'assign_ambulance') {
-        const p = payload as any; // Still casting payload but logic is safe in service
-        if (p.callId && p.ambulanceTeam) {
-          await this.callsService.assignAmbulance({
-            callId: p.callId,
-            ambulanceTeam: p.ambulanceTeam,
-            trackingToken: p.trackingToken
+        const p = payload as any;
+        const callId = p.incidentId || p.callId;
+        const ambulanceTeam = p.team || p.ambulanceTeam;
+        if (callId && ambulanceTeam) {
+          await this.assignmentRepo.assignAmbulance({
+            callId,
+            ambulanceTeam,
+            trackingToken: p.trackingToken || callId,
           });
+          this.logger.log(`✅ Assignment persisted: ${ambulanceTeam} → ${callId}`);
         }
       }
 

@@ -24,8 +24,8 @@ export default function VoicePage() {
 
   const startCall = async () => {
     try {
-      // Connect WebSocket
-      const ws = new WebSocket("ws://localhost:3002");
+      const wsUrl = process.env.NEXT_PUBLIC_WS_VOICE_URL || "ws://localhost:3003";
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {

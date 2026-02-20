@@ -1,9 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Injectable, Inject, Logger, OnModuleInit } from "@nestjs/common";
 import { triageCharacter, type Character } from "./characters";
 import { collectInfoAction } from "./actions";
 import { GeocodingService } from "../services/geocoding.service";
 import { SupabaseService } from "../supabase/supabase.service";
 import { RedisService } from "../services/redis.service";
+import { GroqExtractionService } from "../services/groq-extraction.service";
+import { ExtractCallDataUseCase } from "../application/use-cases/extract-call-data.use-case";
 
 interface Message {
   role: "system" | "user" | "assistant";
@@ -26,6 +28,8 @@ export class ElizaArmService implements OnModuleInit {
     private readonly geocoding: GeocodingService,
     private readonly supabase: SupabaseService,
     private readonly redis: RedisService,
+    private readonly groqExtraction: GroqExtractionService,
+    @Inject('ExtractCallDataUseCase') private readonly extractCallData: ExtractCallDataUseCase,
   ) {}
 
   async onModuleInit() {
@@ -324,6 +328,11 @@ export class ElizaArmService implements OnModuleInit {
         );
       }
 
+      // 🆕 Extraction structurée IA (fire-and-forget, ≥4 messages)
+      if (messageCount >= 4) {
+        this.extractStructuredDataAsync(callId, context);
+      }
+
       return triageData;
     } catch (error) {
       this.logger.warn(
@@ -337,8 +346,95 @@ export class ElizaArmService implements OnModuleInit {
    * Clear conversation context
    */
   clearContext(callId: string): void {
+    // 🆕 Trigger final extraction before clearing context
+    const context = this.conversationContexts.get(callId);
+    if (context) {
+      this.extractStructuredDataAsync(callId, context);
+    }
     this.conversationContexts.delete(callId);
     this.logger.log(`🧹 Cleared context for call: ${callId}`);
+  }
+
+  // ==========================================================================
+  // 🆕 GROQ STRUCTURED DATA EXTRACTION (async, fire-and-forget)
+  // ==========================================================================
+
+  /**
+   * Lance l'extraction structurée en background
+   */
+  private extractStructuredDataAsync(
+    callId: string,
+    context: ConversationContext,
+  ): void {
+    this.performStructuredExtraction(callId, context).catch((err) =>
+      this.logger.error(`❌ Structured extraction error: ${err.message}`),
+    );
+  }
+
+  /**
+   * Exécute l'extraction structurée via Groq AI
+   */
+  private async performStructuredExtraction(
+    callId: string,
+    context: ConversationContext,
+  ): Promise<void> {
+    const fullText = context.messages
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .join(" ");
+
+    if (fullText.trim().length < 15) {
+      this.logger.debug(`⏩ Skip extraction (texte trop court)`);
+      return;
+    }
+
+    this.logger.log(`🤖 [ASYNC] Extraction structurée pour appel: ${callId}`);
+
+    try {
+      // 1. Extraire via Groq
+      const groqResult = await this.groqExtraction.extractFromTranscription(fullText);
+
+      // 2. Sauvegarder via use case (map gender: French → interface format)
+      const genderMap: Record<string, 'M' | 'F' | 'unknown'> = { homme: 'M', femme: 'F', unknown: 'unknown' };
+      const extracted = await this.extractCallData.execute(callId, {
+        patientAge: groqResult.patientAge,
+        patientGender: genderMap[groqResult.patientGender] || 'unknown',
+        symptoms: groqResult.symptoms,
+        medicalHistory: groqResult.medicalHistory,
+        isConscious: groqResult.isConscious,
+        isBreathing: groqResult.isBreathing,
+        hasBleeding: groqResult.hasBleeding,
+        extractionConfidence: groqResult.extractionConfidence,
+      });
+
+      // 3. Calculer priorité smart basée sur les données extraites
+      const smartPriority = this.extractCallData.calculateSmartPriority(extracted);
+
+      this.logger.log(
+        `✅ [ASYNC] Extraction sauvegardée — Score sévérité: ${extracted.calculateSeverityScore()}, Priorité smart: ${smartPriority}`,
+      );
+
+      // 4. Publier via Redis pour dashboard ARM
+      await this.redis.publish("arm:extraction", {
+        callId,
+        extractedData: {
+          patientAge: groqResult.patientAge,
+          patientGender: groqResult.patientGender,
+          symptoms: groqResult.symptoms,
+          isConscious: groqResult.isConscious,
+          isBreathing: groqResult.isBreathing,
+          hasBleeding: groqResult.hasBleeding,
+          confidence: groqResult.extractionConfidence,
+          severityScore: extracted.calculateSeverityScore(),
+          smartPriority,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      this.logger.log(`📡 [ASYNC] Extraction publiée via Redis: arm:extraction`);
+    } catch (error: any) {
+      this.logger.error(`❌ [ASYNC] Extraction failed: ${error.message}`);
+    }
   }
 
   /**

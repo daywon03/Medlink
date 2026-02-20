@@ -17,6 +17,7 @@ type Props = {
 
 const NAV_ITEMS = [
   { href: "/arm", label: "Incidents", icon: "📋" },
+  { href: "/arm/history", label: "Historique", icon: "📜" },
 ];
 
 export default function MedlinkLayout({

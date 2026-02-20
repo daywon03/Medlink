@@ -6,13 +6,14 @@ import {
   InternalServerErrorException,
 } from "@nestjs/common";
 import { SupabaseService } from "../supabase/supabase.service";
-
+import { RideService } from "../services/ride.service";
 import { GeocodingService } from "../services/geocoding.service";
 
 @Controller("api/public/ride")
 export class RideController {
   constructor(
     private readonly supabase: SupabaseService,
+    private readonly rideService: RideService,
     private readonly geocodingService: GeocodingService
   ) {}
 
@@ -22,18 +23,30 @@ export class RideController {
       throw new NotFoundException({ error: "invalid_token" });
     }
 
+    // ✅ 1. Check in-memory ride data first (live tracking from socket events)
+    const liveRide = this.rideService.findByToken(token);
+    if (liveRide) {
+      return liveRide;
+    }
+
+    // ✅ 2. Fall back to DB query
     try {
       const { data: call, error: callError } = await this.supabase["supabase"]
-        .from("calls")
+        .from("emergency_calls")
         .select(
           `
           call_id,
-          extracted_address,
+          location_input_text,
           triage_reports (
             nearest_hospital_data,
             estimated_arrival_minutes,
             data_json_synthese,
             patient_location
+          ),
+          assignments (
+            ambulance_team,
+            tracking_token,
+            status
           )
         `,
         )
@@ -41,34 +54,21 @@ export class RideController {
         .single();
 
       if (callError || !call) {
-        // Fallback to mock data matching previous implementation
-        return {
-          token,
-          status: "en_route",
-          ambulance: { label: "AMB-12" },
-          destinationHospital: {
-            name: "Hôpital Européen Georges-Pompidou",
-            address: "20 Rue Leblanc, 75015 Paris",
-            lat: 48.8386,
-            lng: 2.273,
-          },
-          incident: { label: "Paris 15e", lat: 48.8414, lng: 2.3007 },
-          ambulancePos: {
-            lat: 48.834,
-            lng: 2.287,
-            updatedAt: new Date().toISOString(),
-          },
-          etaMinutes: 7,
-          expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-        };
+        throw new NotFoundException({ error: "Lien invalide ou expiré." });
       }
 
-      const triageReport = call.triage_reports?.[0];
+      const triageReport = Array.isArray(call.triage_reports)
+        ? call.triage_reports[0]
+        : call.triage_reports;
+      const assignment = Array.isArray(call.assignments)
+        ? call.assignments[0]
+        : call.assignments;
+
       const hospitalData = this.parseHospitalData(
         triageReport?.nearest_hospital_data,
       );
 
-      // 🆕 Parse patient location
+      // Parse patient location
       let incidentLocation: { lat: number; lng: number; address?: string } | null = null;
       if (triageReport?.patient_location) {
         incidentLocation = typeof triageReport.patient_location === 'string'
@@ -76,15 +76,15 @@ export class RideController {
           : triageReport.patient_location;
       }
 
-      // 🔄 If no coordinates but address exists, OR if coordinates are default Paris, geocode on the fly
-      if ((!incidentLocation || !incidentLocation.lat || (incidentLocation.lat === 48.8566 && incidentLocation.lng === 2.3522)) && call.extracted_address) {
+      // Geocode on the fly if needed
+      if ((!incidentLocation || !incidentLocation.lat || (incidentLocation.lat === 48.8566 && incidentLocation.lng === 2.3522)) && call.location_input_text) {
         try {
-          const geocoded = await this.geocodingService.geocodeAddress(call.extracted_address);
+          const geocoded = await this.geocodingService.geocodeAddress(call.location_input_text);
           if (geocoded) {
             incidentLocation = {
               lat: geocoded.lat,
               lng: geocoded.lng,
-              address: geocoded.address || call.extracted_address
+              address: geocoded.address || call.location_input_text
             };
           }
         } catch (err) {
@@ -92,34 +92,13 @@ export class RideController {
         }
       }
 
-      // Parse synthese for ambulance data
-      let synthese: any = {};
-      try {
-        if (triageReport?.data_json_synthese) {
-          synthese =
-            typeof triageReport.data_json_synthese === "string"
-              ? JSON.parse(triageReport.data_json_synthese)
-              : triageReport.data_json_synthese;
-        }
-      } catch (e) {
-        console.error("Synthese parse error", e);
-      }
-
-      const ambulance = synthese?.ambulance || {
-        label: "Recherche en cours...",
-      };
-      const ambulancePos = synthese?.ambulancePos || {
-        lat: 48.8566,
-        lng: 2.3522,
-        updatedAt: new Date().toISOString(),
-      };
-
-      const status = synthese?.ambulance ? "assigned" : "en_route";
+      // Ambulance info from assignment
+      const ambulanceLabel = assignment?.ambulance_team || "En attente d'assignation";
 
       return {
         token,
-        status,
-        ambulance,
+        status: assignment?.status || "assigned",
+        ambulance: { label: ambulanceLabel },
         destinationHospital: hospitalData || {
           name: "Hôpital le plus proche",
           address: "En cours de localisation",
@@ -127,15 +106,20 @@ export class RideController {
           lng: 2.3522,
         },
         incident: {
-          label: incidentLocation?.address || call.extracted_address || "Localisation inconnue",
+          label: incidentLocation?.address || call.location_input_text || "Localisation inconnue",
           lat: Number(incidentLocation?.lat ?? 48.8566),
           lng: Number(incidentLocation?.lng ?? 2.3522),
         },
-        ambulancePos,
+        ambulancePos: {
+          lat: Number(incidentLocation?.lat ?? 48.8566),
+          lng: Number(incidentLocation?.lng ?? 2.3522),
+          updatedAt: new Date().toISOString(),
+        },
         etaMinutes: triageReport?.estimated_arrival_minutes || null,
         expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       };
     } catch (error) {
+      if (error instanceof NotFoundException) throw error;
       console.error("Error fetching ride data:", error);
       throw new InternalServerErrorException({ error: "internal_error" });
     }

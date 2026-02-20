@@ -11,9 +11,16 @@ export async function login(email: string, password: string) {
 }
 
 export async function register(email: string, password: string) {
+  const redirectUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/login?confirmed=1`
+    : "http://localhost:3000/login?confirmed=1";
+
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      emailRedirectTo: redirectUrl,
+    },
   });
 
   if (error) throw error;

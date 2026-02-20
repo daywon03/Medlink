@@ -55,6 +55,51 @@ export class HospitalsController {
     };
   }
 
+  /**
+   * POST /api/hospitals/nearest-ambulance
+   * Body: { lat: number, lng: number, priority?: 'P0'|'P1'|'P2'|'P3'|number }
+   * Trouve la station ambulance/SMUR la plus proche des coords patient
+   */
+  @Post("nearest-ambulance")
+  async getNearestAmbulance(
+    @Body()
+    body: {
+      lat: number;
+      lng: number;
+      priority?: PriorityInput;
+    },
+  ) {
+    const { lat, lng, priority } = body || {};
+
+    if (lat == null || lng == null) {
+      return { success: false, message: "Coordinates are required" };
+    }
+
+    const location = { lat: Number(lat), lng: Number(lng) };
+
+    if (Number.isNaN(location.lat) || Number.isNaN(location.lng)) {
+      return { success: false, message: "Invalid coordinates" };
+    }
+
+    const stations = await this.geocoding.findNearestAmbulanceStations(location, 15);
+    if (!stations.length) {
+      return { success: false, message: "No ambulance station found" };
+    }
+
+    const nearest = stations[0];
+    const eta = this.geocoding.calculateETA(
+      nearest.distance,
+      this.normalizePriority(priority),
+    );
+
+    return {
+      success: true,
+      ambulanceStation: nearest,
+      allStations: stations,
+      eta,
+    };
+  }
+
   private normalizePriority(
     priority: PriorityInput,
   ): "P0" | "P1" | "P2" | "P3" {

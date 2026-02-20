@@ -24,7 +24,7 @@ interface Incident {
   createdAt: string;
   createdAtRaw: string;
   updatedAtRaw?: string;
-  status: 'nouveau' | 'en_cours' | 'terminé';
+  status: IncidentStatus;
   priority: 1 | 2 | 3 | 4 | 5;
   title: string;
   locationLabel: string;
@@ -40,6 +40,18 @@ interface Incident {
   trackingToken?: string;
   assignmentStatus?: string;
   logs?: string;
+  // 🆕 AI Extracted Data
+  extractedData?: {
+    patientAge?: number | null;
+    patientGender?: string;
+    symptoms?: string[];
+    isConscious?: boolean | null;
+    isBreathing?: boolean | null;
+    hasBleeding?: boolean | null;
+    confidence?: number;
+    severityScore?: number;
+    smartPriority?: string;
+  };
 }
 
 const MapPanel = dynamic(() => import("./ui/MapPanel"), { ssr: false });
@@ -319,6 +331,11 @@ export default function ArmPage() {
   const [hospitalResults, setHospitalResults] = useState<Hospital[]>([]); // 🆕 List of candidates
   const [hospitalEta, setHospitalEta] = useState<number | null>(null);
   const [hospitalSaved, setHospitalSaved] = useState(false);
+
+  // 🆕 Ambulance state
+  const [ambulanceStation, setAmbulanceStation] = useState<Hospital | null>(null);
+  const [ambulanceEta, setAmbulanceEta] = useState<number | null>(null);
+  const [ambulanceLoading, setAmbulanceLoading] = useState(false);
   useEffect(() => {
     setEditNotes(selected?.notes ?? "");
     incidentsRef.current = incidents;
@@ -459,6 +476,25 @@ export default function ArmPage() {
         });
       });
 
+      // 🆕 Écouter les données extraites par IA (extraction structurée Groq)
+      s.on('call:extraction', (data: any) => {
+        console.log('🤖 Extraction data received:', data);
+
+        setIncidents(prev => {
+          const index = prev.findIndex(i => i.id === data.callId);
+          if (index !== -1) {
+            const updated = [...prev];
+            updated[index] = {
+              ...updated[index],
+              extractedData: data.extractedData,
+            };
+            console.log(`✅ Updated incident ${data.callId} with extraction data`);
+            return updated;
+          }
+          return prev;
+        });
+      });
+
       setSocket(s);
     })();
 
@@ -488,8 +524,27 @@ export default function ArmPage() {
             : call.notes,
           logs: call.logs || ""
         }));
-        setIncidents(mapped);
-        incidentsRef.current = mapped;
+
+        // 🆕 Merge with existing local state to preserve user modifications
+        const existingMap = new Map(incidentsRef.current.map(i => [i.id, i]));
+        const merged = mapped.map((freshCall: Incident) => {
+          const existing = existingMap.get(freshCall.id);
+          if (!existing) return freshCall;
+          return {
+            ...freshCall,
+            // Preserve local overrides if they exist
+            nearestHospital: existing.nearestHospital ?? freshCall.nearestHospital,
+            eta: existing.eta ?? freshCall.eta,
+            status: existing.status !== 'nouveau' ? existing.status : freshCall.status,
+            notes: existing.notes && existing.notes !== freshCall.notes ? existing.notes : freshCall.notes,
+            assignedTeam: existing.assignedTeam ?? freshCall.assignedTeam,
+            trackingToken: existing.trackingToken ?? freshCall.trackingToken,
+            extractedData: existing.extractedData ?? (freshCall as any).extractedData,
+          };
+        });
+
+        setIncidents(merged);
+        incidentsRef.current = merged;
         // Auto-select first if none selected (use ref to avoid closure issue)
         if (!selectedIdRef.current && mapped.length > 0) {
           setSelectedId(mapped[0].id);
@@ -592,11 +647,64 @@ export default function ArmPage() {
     socket?.emit("arm:action", { type, ...(payload as Record<string, unknown>) });
   }
 
-  function onAssign() {
+  // 🆕 Auto-fetch nearest ambulance station
+  async function fetchNearestAmbulance(incident: Incident) {
+    setAmbulanceLoading(true);
+    setAmbulanceStation(null);
+    setAmbulanceEta(null);
+    try {
+      const res = await fetch('http://localhost:3001/api/hospitals/nearest-ambulance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lat: incident.lat,
+          lng: incident.lng,
+          priority: incident.priority,
+        }),
+      });
+      const json = await res.json();
+      if (json.success && json.ambulanceStation) {
+        const station = json.ambulanceStation as Hospital;
+        setAmbulanceStation(station);
+        setAmbulanceEta(typeof json.eta === 'number' ? json.eta : null);
+        setAssignTeam(station.name);
+      }
+    } catch (err) {
+      console.error('Failed to fetch nearest ambulance:', err);
+    } finally {
+      setAmbulanceLoading(false);
+    }
+  }
+
+  async function onAssign() {
     if (!selected) return;
-    const hospital = normalizeHospital(selected.nearestHospital);
-    const etaMinutes = typeof selected.eta === "number" ? selected.eta : undefined;
+
+    // Use best available hospital data: hospital search modal result > incident's nearestHospital
+    const hospital = hospitalResult ?? normalizeHospital(selected.nearestHospital);
+    const etaMinutes = ambulanceEta ?? (typeof selected.eta === "number" ? selected.eta : undefined);
     const hospitalMessage = buildHospitalMessage(selected, hospital);
+
+    // Geocode patient address if coords are default Paris center
+    let incidentLat = selected.lat;
+    let incidentLng = selected.lng;
+    const isDefaultParis = Math.abs(incidentLat - 48.8566) < 0.001 && Math.abs(incidentLng - 2.3522) < 0.001;
+
+    if (isDefaultParis && selected.locationLabel && selected.locationLabel !== "Localisation inconnue") {
+      try {
+        const geoRes = await fetch("http://localhost:3001/api/hospitals/nearest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: selected.locationLabel }),
+        });
+        const geoJson = await geoRes.json();
+        if (geoJson.success && geoJson.patientLocation) {
+          incidentLat = geoJson.patientLocation.lat;
+          incidentLng = geoJson.patientLocation.lng;
+        }
+      } catch {
+        // Keep default coords if geocoding fails
+      }
+    }
 
     setIncidents((prev) =>
       prev.map((i) =>
@@ -604,6 +712,11 @@ export default function ArmPage() {
           ? {
               ...i,
               status: "en_cours",
+              lat: incidentLat,
+              lng: incidentLng,
+              nearestHospital: hospital ?? i.nearestHospital,
+              eta: etaMinutes ?? i.eta ?? null,
+              assignedTeam: assignTeam,
               notes:
                 (i.notes ?? "") +
                 `\nAssigné: ${assignTeam}` +
@@ -634,33 +747,41 @@ export default function ArmPage() {
     const url = `/t/${trackingToken}`;
     setTrackingUrl(url);
 
-    // Emit to tracking page (real-time update)
+    // Build tracking payload with geocoded data
     const trackingPayload: Record<string, unknown> = {
       token: trackingToken,
       status: "assigned",
       ambulance: { label: assignTeam },
       incident: {
         label: selected.locationLabel,
-        lat: selected.lat,
-        lng: selected.lng
+        lat: incidentLat,
+        lng: incidentLng
       },
-      ambulancePos: { lat: selected.lat, lng: selected.lng, updatedAt: new Date().toISOString() },
-      expiresAt: new Date(Date.now() + 30 * 60000).toISOString(), // 30 min
+      ambulancePos: ambulanceStation
+        ? { lat: ambulanceStation.lat, lng: ambulanceStation.lng, updatedAt: new Date().toISOString() }
+        : { lat: incidentLat, lng: incidentLng, updatedAt: new Date().toISOString() },
+      destinationHospital: hospital
+        ? {
+            name: hospital.name,
+            address: hospital.address ?? "",
+            lat: hospital.lat,
+            lng: hospital.lng,
+          }
+        : { name: "En recherche...", address: "", lat: incidentLat, lng: incidentLng },
+      etaMinutes: etaMinutes ?? undefined,
+      expiresAt: new Date(Date.now() + 30 * 60000).toISOString(),
     };
 
-    if (hospital) {
-      trackingPayload.destinationHospital = {
-        name: hospital.name,
-        address: hospital.address ?? "",
-        lat: hospital.lat,
-        lng: hospital.lng,
-      };
-    }
-    if (etaMinutes != null) {
-      trackingPayload.etaMinutes = etaMinutes;
-    }
-
     socket?.emit("tracking:assign", trackingPayload);
+
+    // Also persist hospital assignment to DB
+    if (hospital) {
+      fetch(`http://localhost:3001/api/triage/${selected.id}/hospital`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hospital, etaMinutes }),
+      }).catch(() => {});
+    }
 
     setOpenAssign(false);
   }
@@ -997,6 +1118,47 @@ export default function ArmPage() {
                 <div className="noteText">{selected?.notes ?? "Aucune note"}</div>
               </div>
 
+              {/* 🆕 AI Extraction Panel */}
+              {selected?.extractedData && (
+                <div className="card" style={{ marginTop: '0.75rem', background: 'rgba(99, 102, 241, 0.05)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                  <div className="cardHead">
+                    <div className="cardTitle" style={{ fontSize: '0.9rem' }}>🤖 Extraction IA</div>
+                    {selected.extractedData.smartPriority && (
+                      <span className={`badge ${selected.extractedData.smartPriority <= 'P1' ? 'badgePrioHigh' : selected.extractedData.smartPriority === 'P2' ? 'badgePrioMed' : 'badgePrioLow'}`}>
+                        Smart: {selected.extractedData.smartPriority}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', padding: '0.5rem 1rem 1rem', fontSize: '0.8rem' }}>
+                    {selected.extractedData.patientAge != null && (
+                      <div>📅 <span className="muted">Âge:</span> <span className="strong">{selected.extractedData.patientAge} ans</span></div>
+                    )}
+                    {selected.extractedData.patientGender && selected.extractedData.patientGender !== 'unknown' && (
+                      <div>👤 <span className="muted">Genre:</span> <span className="strong">{selected.extractedData.patientGender === 'M' ? 'Homme' : 'Femme'}</span></div>
+                    )}
+                    <div>🟢 <span className="muted">Conscient:</span> <span className="strong">{selected.extractedData.isConscious === true ? 'Oui' : selected.extractedData.isConscious === false ? 'Non' : '?'}</span></div>
+                    <div>🌬️ <span className="muted">Respire:</span> <span className="strong">{selected.extractedData.isBreathing === true ? 'Oui' : selected.extractedData.isBreathing === false ? 'Non' : '?'}</span></div>
+                    <div>🩸 <span className="muted">Hémorragie:</span> <span className="strong">{selected.extractedData.hasBleeding === true ? 'Oui' : selected.extractedData.hasBleeding === false ? 'Non' : '?'}</span></div>
+                    {selected.extractedData.severityScore != null && (
+                      <div>📊 <span className="muted">Sévérité:</span> <span className="strong">{selected.extractedData.severityScore}/100</span></div>
+                    )}
+                  </div>
+                  {selected.extractedData.symptoms && selected.extractedData.symptoms.length > 0 && (
+                    <div style={{ padding: '0 1rem 1rem', fontSize: '0.8rem' }}>
+                      <span className="muted">Symptômes IA:</span>{' '}
+                      {selected.extractedData.symptoms.map((s: string, i: number) => (
+                        <span key={i} className="badge badgePrioMed" style={{ marginRight: '0.3rem', marginBottom: '0.3rem', display: 'inline-block' }}>{s}</span>
+                      ))}
+                    </div>
+                  )}
+                  {selected.extractedData.confidence != null && (
+                    <div style={{ padding: '0 1rem 0.75rem', fontSize: '0.75rem' }} className="muted">
+                      Confiance extraction: {Math.round(selected.extractedData.confidence * 100)}%
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="card">
                 <div className="cardHead">
                   <div className="cardTitle">Journal de conversation (Transcript)</div>
@@ -1013,7 +1175,10 @@ export default function ArmPage() {
               </div>
 
               <div className="btnRow">
-                <button className="btn btnBlue" onClick={() => setOpenAssign(true)} disabled={!selected}>
+                <button className="btn btnBlue" onClick={() => {
+                  setOpenAssign(true);
+                  if (selected) fetchNearestAmbulance(selected);
+                }} disabled={!selected}>
                   🚑 Assigner
                 </button>
                 <button className="btn btnGhost" onClick={() => {
@@ -1069,7 +1234,51 @@ export default function ArmPage() {
           <div className="muted">
             Incident: <b className="strong">{selected?.id}</b>
           </div>
-          <label className="label">Équipe / Ambulance</label>
+
+          {/* 📍 Adresse patient */}
+          <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
+            <div className="muted small">📍 Lieu de l&apos;appel</div>
+            <div className="strong">{selected?.locationLabel || 'En attente...'}</div>
+            {selected && selected.lat !== 48.8566 && (
+              <div className="muted small">{selected.lat.toFixed(4)}, {selected.lng.toFixed(4)}</div>
+            )}
+          </div>
+
+          {/* 🏥 Hôpital assigné */}
+          <div style={{ marginTop: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
+            <div className="muted small">🏥 Hôpital de destination</div>
+            {selectedHospital ? (
+              <>
+                <div className="strong">{selectedHospital.name}</div>
+                {selectedHospital.address && <div className="muted small">{selectedHospital.address}</div>}
+              </>
+            ) : (
+              <div className="muted">Recherche en cours...</div>
+            )}
+            {selected?.eta != null && (
+              <div className="muted small">ETA hôpital: {selected.eta} min</div>
+            )}
+          </div>
+
+          {/* 🚑 Ambulance la plus proche */}
+          <div style={{ marginTop: '0.5rem', padding: '0.75rem', borderRadius: '0.5rem', background: 'rgba(16, 185, 129, 0.06)', border: '1px solid rgba(16, 185, 129, 0.15)' }}>
+            <div className="muted small">🚑 Ambulance la plus proche</div>
+            {ambulanceLoading ? (
+              <div className="muted">Recherche en cours...</div>
+            ) : ambulanceStation ? (
+              <>
+                <div className="strong">{ambulanceStation.name}</div>
+                {ambulanceStation.address && <div className="muted small">{ambulanceStation.address}</div>}
+                {ambulanceStation.distance != null && (
+                  <div className="muted small">{ambulanceStation.distance} km • ETA: {ambulanceEta ?? '?'} min</div>
+                )}
+              </>
+            ) : (
+              <div className="muted">Aucune ambulance trouvée</div>
+            )}
+          </div>
+
+          <label className="label" style={{ marginTop: '0.75rem' }}>Équipe / Ambulance</label>
           <input className="input" value={assignTeam} onChange={(e) => setAssignTeam(e.target.value)} placeholder="ex: AMB-12" />
           <label className="label">Téléphone victime</label>
           <input
@@ -1078,14 +1287,8 @@ export default function ArmPage() {
             onChange={(e) => setVictimPhone(e.target.value)}
             placeholder="ex: +33612345678"
           />
-          <div className="muted small">
-            Hôpital: {selectedHospital ? `${selectedHospital.name}${selectedHospital.address ? ` • ${selectedHospital.address}` : ""}` : "Recherche en cours"}
-          </div>
-          {selected?.eta != null && (
-            <div className="muted small">ETA estimée: {selected.eta} min</div>
-          )}
-          <button className="btn btnBlue" onClick={onAssign}>
-            Confirmer l’assignation
+          <button className="btn btnBlue" onClick={onAssign} style={{ marginTop: '0.75rem' }}>
+            Confirmer l&apos;assignation
           </button>
           {trackingUrl && (
             <div style={{ marginTop: "1rem", padding: "1rem", borderRadius: "0.75rem", background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16, 185, 129, 0.3)" }}>

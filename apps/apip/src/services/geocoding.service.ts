@@ -207,6 +207,70 @@ export class GeocodingService {
   }
 
   /**
+   * Trouver ambulances / SMUR les plus proches
+   * Utilise Google Maps Places API avec keyword "ambulance" ou "SMUR"
+   */
+  async findNearestAmbulanceStations(
+    location: Location,
+    radiusKm = 15,
+  ): Promise<Hospital[]> {
+    try {
+      if (!this.apiKey) {
+        this.logger.error("❌ Google Maps API key not configured");
+        return [];
+      }
+
+      const radiusMeters = radiusKm * 1000;
+
+      // Google Places API - keyword search for ambulance services
+      const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${location.lat},${location.lng}&radius=${radiusMeters}&keyword=ambulance+SMUR+SAMU+pompiers+caserne&key=${this.apiKey}`;
+
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === "OK" && data.results && data.results.length > 0) {
+        const stations = data.results
+          .map((place: any) => {
+            const lat = place.geometry.location.lat;
+            const lng = place.geometry.location.lng;
+
+            return {
+              id: `google-amb-${place.place_id}`,
+              name: place.name,
+              address:
+                place.vicinity || place.formatted_address || "Adresse inconnue",
+              lat,
+              lng,
+              distance: this.calculateDistance(
+                location.lat,
+                location.lng,
+                lat,
+                lng,
+              ),
+              type: "emergency" as const,
+            };
+          })
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, 5); // Top 5
+
+        this.logger.log(
+          `🚑 Trouvé ${stations.length} stations ambulance dans ${radiusKm}km via Google Maps`,
+        );
+        return stations;
+      }
+
+      this.logger.warn(
+        `⚠️ Aucune ambulance trouvée dans ${radiusKm}km` +
+          (data.error_message ? ` - ${data.error_message}` : ""),
+      );
+      return [];
+    } catch (error) {
+      this.logger.error(`Find ambulance stations failed: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
    * Calculer ETA (estimation temps d'arrivée) en minutes
    */
   calculateETA(distanceKm: number, priority: string): number {
